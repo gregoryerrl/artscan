@@ -1,0 +1,17 @@
+{
+  "name": "artwork-scanner",
+  "version": "0.1.0",
+  "description": "Offline-first artwork scanner using ORB feature matching",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "keywords": ["pwa", "opencv", "orb", "artwork", "scanner"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {}
+}
