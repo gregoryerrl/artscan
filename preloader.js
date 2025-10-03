@@ -45,34 +45,55 @@ function loadImage(src) {
     });
 }
 
-// Extract ORB features
+// Extract ORB features (using canvas to avoid CORS issues)
 function extractORBFeatures(img) {
-    const src = cv.imread(img);
-    const gray = new cv.Mat();
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    try {
+        // Create a temporary canvas to avoid CORS issues
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.width || img.videoWidth;
+        tempCanvas.height = img.height || img.videoHeight;
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
 
-    const orb = new cv.ORB(500);
-    const keypoints = new cv.KeyPointVector();
-    const descriptors = new cv.Mat();
+        const src = cv.imread(tempCanvas);
+        const gray = new cv.Mat();
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-    orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+        const orb = new cv.ORB(500);
+        const keypoints = new cv.KeyPointVector();
+        const descriptors = new cv.Mat();
 
-    src.delete();
-    gray.delete();
-    orb.delete();
+        orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
 
-    return { keypoints, descriptors };
+        src.delete();
+        gray.delete();
+        orb.delete();
+
+        return { keypoints, descriptors };
+    } catch (error) {
+        console.error('[Preloader] ORB extraction error:', error);
+        throw error;
+    }
 }
 
 // Process all artworks
 async function processArtworks() {
-    if (isProcessing) return;
+    if (isProcessing) {
+        console.log('[Preloader] Already processing, skipping...');
+        return;
+    }
     isProcessing = true;
 
     try {
+        console.log('[Preloader] Starting artwork processing...');
+
         // Load artworks JSON
         const response = await fetch('artworks.json');
+        if (!response.ok) {
+            throw new Error(`Failed to fetch artworks.json: ${response.status}`);
+        }
         const artworks = await response.json();
+        console.log(`[Preloader] Loaded ${artworks.length} artworks from JSON`);
 
         updatePreloaderStatus(`Processing ${artworks.length} artworks...`);
 
@@ -81,10 +102,14 @@ async function processArtworks() {
         // Process each artwork
         for (let i = 0; i < artworks.length; i++) {
             const artwork = artworks[i];
-            updatePreloaderStatus(`Processing ${i + 1}/${artworks.length}: ${artwork.title}`);
+            const progress = `${i + 1}/${artworks.length}`;
+            updatePreloaderStatus(`Processing ${progress}: ${artwork.title.substring(0, 30)}...`);
+            console.log(`[Preloader] [${progress}] Processing: ${artwork.title}`);
 
             const img = await loadImage(artwork.img);
             const features = extractORBFeatures(img);
+
+            console.log(`[Preloader] [${progress}] Extracted ${features.keypoints.size()} keypoints`);
 
             referenceData.push({
                 ...artwork,
@@ -93,23 +118,36 @@ async function processArtworks() {
             });
         }
 
+        console.log(`[Preloader] Finished processing ${referenceData.length} artworks`);
+
         // Save to cache
         if (window.OpencvCache) {
-            window.OpencvCache.saveProcessedArtworks(referenceData);
-            updatePreloaderStatus('✓ All artworks ready!', true);
+            console.log('[Preloader] Saving to sessionStorage...');
+            const saved = window.OpencvCache.saveProcessedArtworks(referenceData);
+            if (saved) {
+                console.log('[Preloader] ✓ Successfully cached all artworks!');
+                updatePreloaderStatus('✓ All artworks ready!', true);
+            } else {
+                console.error('[Preloader] Failed to save cache');
+                updatePreloaderStatus('Cache save failed');
+            }
+        } else {
+            console.error('[Preloader] OpencvCache not available!');
+            updatePreloaderStatus('Cache module missing');
         }
 
         // Clean up
         referenceData.forEach(ref => {
-            ref.descriptors.delete();
-            ref.keypoints.delete();
+            if (ref.descriptors) ref.descriptors.delete();
+            if (ref.keypoints) ref.keypoints.delete();
         });
 
     } catch (error) {
-        console.error('[Preloader] Error:', error);
-        updatePreloaderStatus('Error processing artworks');
+        console.error('[Preloader] Fatal error:', error);
+        updatePreloaderStatus(`✗ Error: ${error.message}`);
     } finally {
         isProcessing = false;
+        console.log('[Preloader] Processing complete');
     }
 }
 

@@ -26,10 +26,9 @@ function displayArtworks() {
         .map(
             (artwork) => `
         <div class="artwork-card">
-            <img src="${artwork.img}"
-                 alt="${artwork.title}"
-                 loading="lazy"
-                 onerror="this.src='https://via.placeholder.com/280x280?text=Image+Not+Found'">
+            <a href="${artwork.img}" target="_blank">
+                <img src="${artwork.img}" alt="${artwork.title}">
+            </a>
             <div class="artwork-info">
                 <h3>${artwork.title}</h3>
                 <p class="artist">${artwork.artist}</p>

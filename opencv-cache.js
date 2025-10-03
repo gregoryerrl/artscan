@@ -2,7 +2,7 @@
 // Serializes/deserializes OpenCV Mat descriptors for sessionStorage
 
 const CACHE_KEY = 'artscan_processed_artworks';
-const CACHE_VERSION = '1.0';
+const CACHE_VERSION = '1.1';  // v1.1: Descriptors only (keypoints not needed for matching)
 
 /**
  * Serialize cv.Mat descriptor to plain object
@@ -30,52 +30,33 @@ function deserializeDescriptor(cv, obj) {
 }
 
 /**
- * Serialize keypoints to plain array
+ * NOTE: Keypoints are NOT serialized because:
+ * 1. They're not needed for matching (only descriptors are used)
+ * 2. cv.KeyPoint is not a constructor in OpenCV.js
+ * 3. KeyPoints cannot be reconstructed from plain data in OpenCV.js
+ *
+ * We only store descriptors, which is all that's needed for feature matching.
  */
-function serializeKeypoints(keypoints) {
-    const kpArray = [];
-    for (let i = 0; i < keypoints.size(); i++) {
-        const kp = keypoints.get(i);
-        kpArray.push({
-            x: kp.pt.x,
-            y: kp.pt.y,
-            size: kp.size,
-            angle: kp.angle,
-            response: kp.response,
-            octave: kp.octave,
-            class_id: kp.class_id
-        });
-    }
-    return kpArray;
-}
-
-/**
- * Deserialize keypoints array back to KeyPointVector
- */
-function deserializeKeypoints(cv, kpArray) {
-    const keypoints = new cv.KeyPointVector();
-    kpArray.forEach(kp => {
-        keypoints.push_back(new cv.KeyPoint(
-            kp.x, kp.y, kp.size, kp.angle, kp.response, kp.octave, kp.class_id
-        ));
-    });
-    return keypoints;
-}
 
 /**
  * Save processed artworks to sessionStorage
  */
 function saveProcessedArtworks(referenceData) {
     try {
-        const serialized = referenceData.map(ref => ({
-            id: ref.id,
-            title: ref.title,
-            artist: ref.artist,
-            year: ref.year,
-            img: ref.img,
-            descriptors: serializeDescriptor(ref.descriptors),
-            keypoints: serializeKeypoints(ref.keypoints)
-        }));
+        console.log(`[Cache] Serializing ${referenceData.length} artworks...`);
+
+        const serialized = referenceData.map((ref, index) => {
+            console.log(`[Cache] Serializing ${index + 1}/${referenceData.length}: ${ref.title}`);
+            return {
+                id: ref.id,
+                title: ref.title,
+                artist: ref.artist,
+                year: ref.year,
+                img: ref.img,
+                descriptors: serializeDescriptor(ref.descriptors)
+                // Note: keypoints not serialized - not needed for matching
+            };
+        });
 
         const cacheData = {
             version: CACHE_VERSION,
@@ -83,11 +64,27 @@ function saveProcessedArtworks(referenceData) {
             data: serialized
         };
 
-        sessionStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
-        console.log('✓ Cached processed artworks to sessionStorage');
-        return true;
+        const jsonString = JSON.stringify(cacheData);
+        const sizeKB = (jsonString.length / 1024).toFixed(2);
+        console.log(`[Cache] JSON size: ${sizeKB} KB`);
+
+        sessionStorage.setItem(CACHE_KEY, jsonString);
+        console.log('[Cache] ✓ Successfully saved to sessionStorage');
+
+        // Verify it was saved
+        const verify = sessionStorage.getItem(CACHE_KEY);
+        if (verify) {
+            console.log('[Cache] ✓ Verified cache exists in sessionStorage');
+            return true;
+        } else {
+            console.error('[Cache] ✗ Cache verification failed!');
+            return false;
+        }
     } catch (error) {
-        console.error('Failed to cache artworks:', error);
+        console.error('[Cache] Failed to save artworks:', error);
+        if (error.name === 'QuotaExceededError') {
+            console.error('[Cache] SessionStorage quota exceeded!');
+        }
         return false;
     }
 }
@@ -97,33 +94,48 @@ function saveProcessedArtworks(referenceData) {
  */
 function loadProcessedArtworks(cv) {
     try {
+        console.log('[Cache] Checking sessionStorage for cached data...');
         const cached = sessionStorage.getItem(CACHE_KEY);
-        if (!cached) return null;
 
+        if (!cached) {
+            console.log('[Cache] No cache found');
+            return null;
+        }
+
+        console.log('[Cache] Cache found, parsing...');
         const cacheData = JSON.parse(cached);
 
         // Check version
         if (cacheData.version !== CACHE_VERSION) {
-            console.log('Cache version mismatch, clearing...');
+            console.log(`[Cache] Version mismatch: expected ${CACHE_VERSION}, got ${cacheData.version}`);
             sessionStorage.removeItem(CACHE_KEY);
             return null;
         }
 
-        // Deserialize data
-        const referenceData = cacheData.data.map(item => ({
-            id: item.id,
-            title: item.title,
-            artist: item.artist,
-            year: item.year,
-            img: item.img,
-            descriptors: deserializeDescriptor(cv, item.descriptors),
-            keypoints: deserializeKeypoints(cv, item.keypoints)
-        }));
+        const age = Date.now() - cacheData.timestamp;
+        const ageMinutes = (age / 1000 / 60).toFixed(1);
+        console.log(`[Cache] Cache age: ${ageMinutes} minutes`);
 
-        console.log(`✓ Loaded ${referenceData.length} artworks from cache`);
+        // Deserialize data
+        console.log(`[Cache] Deserializing ${cacheData.data.length} artworks...`);
+        const referenceData = cacheData.data.map((item, index) => {
+            console.log(`[Cache] Deserializing ${index + 1}/${cacheData.data.length}: ${item.title}`);
+            return {
+                id: item.id,
+                title: item.title,
+                artist: item.artist,
+                year: item.year,
+                img: item.img,
+                descriptors: deserializeDescriptor(cv, item.descriptors),
+                keypoints: new cv.KeyPointVector()  // Empty placeholder - not needed for matching
+            };
+        });
+
+        console.log(`[Cache] ✓ Successfully loaded ${referenceData.length} artworks from cache`);
         return referenceData;
     } catch (error) {
-        console.error('Failed to load cache:', error);
+        console.error('[Cache] Failed to load cache:', error);
+        console.error('[Cache] Clearing corrupted cache...');
         sessionStorage.removeItem(CACHE_KEY);
         return null;
     }
