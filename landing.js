@@ -7,23 +7,25 @@ const loadMoreIncrement = 12;
 // Load artworks from JSON
 async function loadArtworks() {
     try {
-        const response = await fetch('artworks.json');
+        const response = await fetch("artworks.json");
         artworks = await response.json();
 
         // Display initial artworks
         displayArtworks();
     } catch (error) {
-        console.error('Error loading artworks:', error);
+        console.error("Error loading artworks:", error);
     }
 }
 
 // Display artworks in grid
 function displayArtworks() {
-    const grid = document.getElementById('artwork-grid');
+    const grid = document.getElementById("artwork-grid");
     const artworksToShow = artworks.slice(0, displayedCount);
 
-    grid.innerHTML = artworksToShow.map(artwork => `
-        <div class="artwork-card" onclick="window.location.href='/scan.html'">
+    grid.innerHTML = artworksToShow
+        .map(
+            (artwork) => `
+        <div class="artwork-card">
             <img src="${artwork.img}"
                  alt="${artwork.title}"
                  loading="lazy"
@@ -34,19 +36,21 @@ function displayArtworks() {
                 <p class="year">${artwork.year}</p>
             </div>
         </div>
-    `).join('');
+    `
+        )
+        .join("");
 
     // Show/hide load more button
-    const loadMoreBtn = document.getElementById('load-more-btn');
+    const loadMoreBtn = document.getElementById("load-more-btn");
     if (displayedCount >= artworks.length) {
-        loadMoreBtn.style.display = 'none';
+        loadMoreBtn.style.display = "none";
     } else {
-        loadMoreBtn.style.display = 'inline-flex';
+        loadMoreBtn.style.display = "inline-flex";
     }
 }
 
 // Load more artworks
-document.getElementById('load-more-btn').addEventListener('click', () => {
+document.getElementById("load-more-btn").addEventListener("click", () => {
     displayedCount += loadMoreIncrement;
     displayArtworks();
 });

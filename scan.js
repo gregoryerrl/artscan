@@ -79,23 +79,12 @@ async function processReferenceImages() {
 function loadImage(src) {
     return new Promise((resolve, reject) => {
         const img = new Image();
-
-        // Use proxy for external Cleveland Museum images (only in development)
-        let imageSrc = src;
-        const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
-        if (isDevelopment && src.startsWith('https://openaccess-cdn.clevelandart.org/')) {
-            imageSrc = `/api/proxy-image?url=${encodeURIComponent(src)}`;
-        }
-
-        // Always set crossOrigin for canvas compatibility
-        img.crossOrigin = "anonymous";
         img.onload = () => resolve(img);
         img.onerror = (e) => {
             console.error(`Failed to load image: ${src}`, e);
             reject(new Error(`Failed to load ${src}`));
         };
-        img.src = imageSrc;
+        img.src = src;
     });
 }
 

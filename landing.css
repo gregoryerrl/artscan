@@ -164,11 +164,11 @@ body {
     overflow: hidden;
     box-shadow: var(--shadow);
     transition: all 0.3s;
-    cursor: pointer;
 }
 
 .artwork-card:hover {
     transform: translateY(-8px);
+    scale: 1.1;
     box-shadow: var(--shadow-lg);
 }
 
