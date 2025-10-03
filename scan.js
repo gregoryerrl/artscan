@@ -10,6 +10,21 @@ let artworks = [];
 function onOpenCvReady() {
     cv = window.cv;
     console.log("OpenCV.js loaded:", cv);
+
+    // Check for cached processed data first
+    if (window.OpencvCache) {
+        const cached = window.OpencvCache.loadProcessedArtworks(cv);
+        if (cached) {
+            referenceData = cached;
+            updateStatus(`✓ Loaded ${referenceData.length} artworks from cache!`, "success");
+            setTimeout(() => {
+                requestCameraAccess();
+            }, 500);
+            return;
+        }
+    }
+
+    // No cache, process normally
     updateStatus("✓ OpenCV.js loaded! Loading artworks...", "info");
     loadArtworks();
 }

@@ -8,6 +8,13 @@
         <link rel="stylesheet" href="landing.css" />
     </head>
     <body>
+        <!-- Preload Indicator -->
+        <div id="preload-indicator" class="preload-indicator">
+            <div class="preload-content">
+                <div class="preload-spinner"></div>
+                <p id="preload-status">Initializing...</p>
+            </div>
+        </div>
         <!-- Hero Section -->
         <section class="hero">
             <div class="hero-content">
@@ -43,6 +50,12 @@
             </div>
         </section>
 
+        <!-- Load cache module -->
+        <script src="opencv-cache.js"></script>
+        <!-- Load landing page script -->
         <script src="landing.js"></script>
+        <!-- Load OpenCV.js and preloader in background -->
+        <script async src="https://docs.opencv.org/4.5.0/opencv.js"></script>
+        <script src="preloader.js"></script>
     </body>
 </html>
