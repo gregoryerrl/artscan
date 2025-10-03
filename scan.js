@@ -80,9 +80,11 @@ function loadImage(src) {
     return new Promise((resolve, reject) => {
         const img = new Image();
 
-        // Use proxy for external Cleveland Museum images
+        // Use proxy for external Cleveland Museum images (only in development)
         let imageSrc = src;
-        if (src.startsWith('https://openaccess-cdn.clevelandart.org/')) {
+        const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+        if (isDevelopment && src.startsWith('https://openaccess-cdn.clevelandart.org/')) {
             imageSrc = `/api/proxy-image?url=${encodeURIComponent(src)}`;
         }
 
