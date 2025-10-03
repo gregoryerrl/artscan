@@ -4,45 +4,28 @@
 let cv = null;
 let stream = null;
 let referenceData = [];
-
-// Reference artwork information
-const artworks = [
-    {
-        id: 1,
-        title: "The Starry Night",
-        artist: "Vincent van Gogh",
-        year: 1889,
-        img: "test-images/starry-night.jpg",
-    },
-    {
-        id: 2,
-        title: "Mona Lisa",
-        artist: "Leonardo da Vinci",
-        year: 1503,
-        img: "test-images/mona-lisa.jpg",
-    },
-    {
-        id: 3,
-        title: "The Scream",
-        artist: "Edvard Munch",
-        year: 1893,
-        img: "test-images/scream.jpg",
-    },
-    {
-        id: 4,
-        title: "The Last Supper",
-        artist: "Leonardo da Vinci",
-        year: 1498,
-        img: "test-images/last-supper.jpg",
-    },
-];
+let artworks = [];
 
 // Wait for OpenCV.js to load
 function onOpenCvReady() {
     cv = window.cv;
     console.log("OpenCV.js loaded:", cv);
-    updateStatus("✓ OpenCV.js loaded! Processing reference images...", "info");
-    processReferenceImages();
+    updateStatus("✓ OpenCV.js loaded! Loading artworks...", "info");
+    loadArtworks();
+}
+
+// Load artworks from JSON
+async function loadArtworks() {
+    try {
+        const response = await fetch("artworks.json");
+        artworks = await response.json();
+        console.log(`✓ Loaded ${artworks.length} artworks from JSON`);
+        updateStatus(`✓ Loaded ${artworks.length} artworks. Processing...`, "info");
+        processReferenceImages();
+    } catch (error) {
+        console.error("Error loading artworks:", error);
+        updateStatus(`✗ Error loading artworks: ${error.message}`, "error");
+    }
 }
 
 // Set up Module for OpenCV initialization
@@ -96,30 +79,53 @@ async function processReferenceImages() {
 function loadImage(src) {
     return new Promise((resolve, reject) => {
         const img = new Image();
+
+        // Use proxy for external Cleveland Museum images
+        let imageSrc = src;
+        if (src.startsWith('https://openaccess-cdn.clevelandart.org/')) {
+            imageSrc = `/api/proxy-image?url=${encodeURIComponent(src)}`;
+        }
+
+        // Always set crossOrigin for canvas compatibility
         img.crossOrigin = "anonymous";
         img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error(`Failed to load ${src}`));
-        img.src = src;
+        img.onerror = (e) => {
+            console.error(`Failed to load image: ${src}`, e);
+            reject(new Error(`Failed to load ${src}`));
+        };
+        img.src = imageSrc;
     });
 }
 
 // Extract ORB features from an image
 function extractORBFeatures(img) {
-    const src = cv.imread(img);
-    const gray = new cv.Mat();
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    try {
+        // Create a temporary canvas to avoid CORS issues
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.width || img.videoWidth;
+        tempCanvas.height = img.height || img.videoHeight;
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
 
-    const orb = new cv.ORB(500);
-    const keypoints = new cv.KeyPointVector();
-    const descriptors = new cv.Mat();
+        const src = cv.imread(tempCanvas);
+        const gray = new cv.Mat();
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-    orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+        const orb = new cv.ORB(500);
+        const keypoints = new cv.KeyPointVector();
+        const descriptors = new cv.Mat();
 
-    src.delete();
-    gray.delete();
-    orb.delete();
+        orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
 
-    return { keypoints, descriptors };
+        src.delete();
+        gray.delete();
+        orb.delete();
+
+        return { keypoints, descriptors };
+    } catch (error) {
+        console.error('ORB extraction error:', error);
+        throw error;
+    }
 }
 
 // Match captured image against reference images
