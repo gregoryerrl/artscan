@@ -6,6 +6,18 @@ let stream = null;
 let referenceData = [];
 let artworks = [];
 
+// Auto-scan state
+let scanningActive = false;
+let scanHistory = []; // Sliding window of recent scan attempts
+const AUTO_SCAN_CONFIG = {
+    ENABLED: true,
+    SCAN_INTERVAL: 600, // ms between scans
+    HISTORY_SIZE: 3, // Remember last 3 attempts
+    REQUIRE_CONSISTENCY: true, // Require same president in 2/3 attempts
+    NUM_FRAMES: 5, // Frames per scan attempt
+    FRAME_DELAY: 250 // ms between frames
+};
+
 // Wait for OpenCV.js to load
 function onOpenCvReady() {
     cv = window.cv;
@@ -210,17 +222,29 @@ async function requestCameraAccess() {
         video.srcObject = stream;
         await video.play();
 
-        // Show capture button
-        document.getElementById("capture-btn").style.display = "block";
+        // Auto-scan mode: Start continuous scanning
+        if (AUTO_SCAN_CONFIG.ENABLED) {
+            updateStatus("✓ Camera ready! Starting auto-scan...", "success");
 
-        updateStatus("✓ Point camera at artwork and tap to scan", "success");
+            // Start auto-scanning after brief delay
+            setTimeout(() => {
+                startContinuousScanning();
+            }, 1000);
 
-        // Hide status after 3 seconds
-        setTimeout(() => {
-            const statusEl = document.getElementById("status-overlay");
-            statusEl.style.opacity = "0";
-            statusEl.style.transition = "opacity 0.5s";
-        }, 3000);
+            // Hide capture button in auto-scan mode
+            document.getElementById("capture-btn").style.display = "none";
+        } else {
+            // Manual mode: Show capture button
+            document.getElementById("capture-btn").style.display = "block";
+            updateStatus("✓ Point camera at artwork and tap to scan", "success");
+
+            // Hide status after 3 seconds
+            setTimeout(() => {
+                const statusEl = document.getElementById("status-overlay");
+                statusEl.style.opacity = "0";
+                statusEl.style.transition = "opacity 0.5s";
+            }, 3000);
+        }
 
     } catch (error) {
         console.error("Camera error:", error);
@@ -314,9 +338,151 @@ async function captureAndIdentify() {
     }
 }
 
-// Aggregate results from multiple frames using voting
+// Continuous auto-scanning loop
+async function startContinuousScanning() {
+    if (!AUTO_SCAN_CONFIG.ENABLED) return;
+
+    scanningActive = true;
+    console.log('🔍 Starting continuous auto-scan mode');
+
+    const video = document.getElementById("camera");
+    const canvas = document.getElementById("capture-canvas");
+
+    while (scanningActive) {
+        try {
+            updateStatus("🔍 Scanning... Hold steady on portrait", "loading");
+
+            const frameResults = [];
+
+            // Capture multiple frames for this scan attempt
+            for (let i = 0; i < AUTO_SCAN_CONFIG.NUM_FRAMES; i++) {
+                // Capture current frame
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0);
+
+                // Extract features and match
+                const features = extractORBFeatures(canvas);
+                const keypointCount = features.keypoints.size();
+
+                // Show live feedback
+                updateStatus(`🔍 Analyzing... found ${keypointCount} features (${i + 1}/${AUTO_SCAN_CONFIG.NUM_FRAMES})`, "loading");
+
+                const match = matchImage(features.descriptors);
+
+                // Clean up
+                features.keypoints.delete();
+                features.descriptors.delete();
+
+                // Store result
+                if (match) {
+                    frameResults.push(match);
+                }
+
+                // Wait before next frame
+                if (i < AUTO_SCAN_CONFIG.NUM_FRAMES - 1) {
+                    await new Promise(resolve => setTimeout(resolve, AUTO_SCAN_CONFIG.FRAME_DELAY));
+                }
+            }
+
+            // Aggregate results for this attempt
+            const aggregatedResult = aggregateFrameResults(frameResults);
+
+            // Add to history (sliding window)
+            if (aggregatedResult && !aggregatedResult.inconclusive) {
+                scanHistory.push(aggregatedResult);
+                if (scanHistory.length > AUTO_SCAN_CONFIG.HISTORY_SIZE) {
+                    scanHistory.shift(); // Remove oldest
+                }
+            }
+
+            // Check if we should display result
+            const shouldDisplay = checkForConfidentMatch();
+
+            if (shouldDisplay) {
+                console.log('✓ Confident match found!', shouldDisplay);
+                scanningActive = false;
+
+                // Vibrate success
+                vibrate([50, 100, 50]);
+
+                // Display result
+                displayResult(shouldDisplay);
+
+                // Clear history
+                scanHistory = [];
+            } else {
+                // Continue scanning after interval
+                await new Promise(resolve => setTimeout(resolve, AUTO_SCAN_CONFIG.SCAN_INTERVAL - (AUTO_SCAN_CONFIG.NUM_FRAMES * AUTO_SCAN_CONFIG.FRAME_DELAY)));
+            }
+
+        } catch (error) {
+            console.error('Auto-scan error:', error);
+            // Continue scanning despite error
+            await new Promise(resolve => setTimeout(resolve, AUTO_SCAN_CONFIG.SCAN_INTERVAL));
+        }
+    }
+
+    console.log('⏸️  Auto-scan stopped');
+}
+
+// Check scan history for confident match
+function checkForConfidentMatch() {
+    if (scanHistory.length === 0) return null;
+
+    const latestScan = scanHistory[scanHistory.length - 1];
+
+    // Option 1: Perfect single scan (100% consensus, 5/5 frames, 25+ features)
+    if (latestScan.consensus === 100 && latestScan.matches >= 25) {
+        console.log('→ Perfect single scan detected');
+        return latestScan;
+    }
+
+    // Option 2: Consistent across multiple attempts
+    if (AUTO_SCAN_CONFIG.REQUIRE_CONSISTENCY && scanHistory.length >= 2) {
+        // Count occurrences of each president name
+        const nameCounts = new Map();
+        for (const scan of scanHistory) {
+            const count = nameCounts.get(scan.name) || 0;
+            nameCounts.set(scan.name, count + 1);
+        }
+
+        // Find most frequent president
+        let maxCount = 0;
+        let mostFrequent = null;
+        for (const [name, count] of nameCounts.entries()) {
+            if (count > maxCount) {
+                maxCount = count;
+                mostFrequent = name;
+            }
+        }
+
+        // If same president detected in 2/3 of recent attempts with 80%+ consensus
+        const consistency = maxCount / scanHistory.length;
+        if (consistency >= 0.67 && latestScan.name === mostFrequent && latestScan.consensus >= 80) {
+            console.log(`→ Consistent match: ${mostFrequent} (${maxCount}/${scanHistory.length} attempts)`);
+            return latestScan;
+        }
+    }
+
+    return null;
+}
+
+// Stop continuous scanning
+function stopContinuousScanning() {
+    scanningActive = false;
+    scanHistory = [];
+    console.log('⏹️  Auto-scan stopped by user');
+}
+
+// Aggregate results from multiple frames using weighted voting
 function aggregateFrameResults(frameResults) {
     if (frameResults.length === 0) return null;
+
+    const CONSENSUS_THRESHOLD = 0.8; // Require 80% agreement (4/5 frames) - increased for auto-scan
+    const TIE_MARGIN = 1; // Consider it a tie if within 1 vote
+    const MIN_MATCH_QUALITY = 8; // Increased from 5 for stricter tie detection
 
     // Count votes for each president
     const votes = new Map();
@@ -341,31 +507,65 @@ function aggregateFrameResults(frameResults) {
         president.frameCount++;
     }
 
-    // Find president with most votes
-    let winner = null;
-    let maxVotes = 0;
+    // Calculate weighted scores and sort candidates
+    const candidates = Array.from(votes.values()).map(president => {
+        const avgMatches = president.totalMatches / president.frameCount;
+        // Weighted score: votes (primary) + avg matches (secondary) + max matches (tiebreaker)
+        const score = president.voteCount * 100 + avgMatches * 0.5 + president.maxMatches * 0.1;
+        return {
+            ...president,
+            avgMatches: Math.round(avgMatches),
+            score: score,
+            consensus: president.voteCount / frameResults.length
+        };
+    }).sort((a, b) => b.score - a.score);
 
-    for (const president of votes.values()) {
-        if (president.voteCount > maxVotes) {
-            maxVotes = president.voteCount;
-            winner = president;
-        }
+    if (candidates.length === 0) return null;
+
+    const winner = candidates[0];
+    const runnerUp = candidates.length > 1 ? candidates[1] : null;
+
+    // Check for minimum consensus threshold
+    if (winner.consensus < CONSENSUS_THRESHOLD) {
+        // Insufficient consensus - return inconclusive result
+        return {
+            inconclusive: true,
+            topCandidates: runnerUp ? [winner, runnerUp] : [winner],
+            voteCount: winner.voteCount,
+            totalFrames: frameResults.length,
+            reason: 'insufficient_consensus'
+        };
     }
 
-    if (!winner) return null;
+    // Check for tie (votes are close)
+    if (runnerUp && Math.abs(winner.voteCount - runnerUp.voteCount) <= TIE_MARGIN) {
+        // Use match quality as tiebreaker
+        const qualityDiff = winner.avgMatches - runnerUp.avgMatches;
 
-    // Calculate average matches across frames that voted for winner
-    const avgMatches = Math.round(winner.totalMatches / winner.frameCount);
+        // If match quality is also very close (within MIN_MATCH_QUALITY features), it's inconclusive
+        if (Math.abs(qualityDiff) < MIN_MATCH_QUALITY) {
+            return {
+                inconclusive: true,
+                topCandidates: [winner, runnerUp],
+                voteCount: winner.voteCount,
+                totalFrames: frameResults.length,
+                reason: 'tie'
+            };
+        }
+        // Otherwise, winner is determined by quality tiebreaker (continue below)
+    }
 
+    // Clear winner - return result
     return {
         name: winner.name,
         description: winner.description,
         url: winner.url,
-        matches: winner.maxMatches, // Use best match count
-        avgMatches: avgMatches,
+        matches: winner.maxMatches,
+        avgMatches: winner.avgMatches,
         voteCount: winner.voteCount,
         totalFrames: frameResults.length,
-        confidence: Math.round((winner.voteCount / frameResults.length) * 100)
+        consensus: Math.round(winner.consensus * 100),
+        score: Math.round(winner.score)
     };
 }
 
@@ -374,7 +574,44 @@ function displayResult(match) {
     const resultModal = document.getElementById("result-modal");
     const resultDisplay = document.getElementById("result-display");
 
-    if (match && match.matches >= 15) {
+    // Handle inconclusive results (insufficient consensus or tie)
+    if (match && match.inconclusive) {
+        const candidates = match.topCandidates || [];
+        const reason = match.reason === 'tie'
+            ? 'Results too close to determine'
+            : 'Insufficient agreement across frames';
+
+        let candidatesHTML = '';
+        if (candidates.length >= 2) {
+            candidatesHTML = `
+                <p style="margin-top: 1rem; font-size: 0.95rem;">
+                    <strong>Top candidates:</strong><br>
+                    ${candidates.map(c => `• ${c.name} (${c.voteCount}/${match.totalFrames} frames, avg ${c.avgMatches} matches)`).join('<br>')}
+                </p>
+            `;
+        }
+
+        resultDisplay.innerHTML = `
+            <div class="result-no-match">
+                <h3>⚠️ Inconclusive Result</h3>
+                <p><strong>${reason}</strong></p>
+                <p style="margin-top: 1rem;">Please try again:</p>
+                <ul style="text-align: left; margin: 1rem 0; padding-left: 2rem;">
+                    <li>Hold camera steady</li>
+                    <li>Ensure good lighting</li>
+                    <li>Center the portrait in frame</li>
+                    <li>Avoid glare or shadows</li>
+                </ul>
+                ${candidatesHTML}
+            </div>
+        `;
+        updateStatus("Inconclusive - try again", "error");
+        resultModal.style.display = "block";
+        return;
+    }
+
+    // Handle successful match (increased threshold from 15 to 20)
+    if (match && match.matches >= 20) {
         const confidence = Math.min(
             95,
             Math.round((match.matches / 500) * 100 + 40)
@@ -389,7 +626,7 @@ function displayResult(match) {
         // Add voting stats if available (multi-frame capture)
         if (match.voteCount && match.totalFrames) {
             statsHTML += `
-                <p><strong>Frame Consensus:</strong> ${match.voteCount}/${match.totalFrames} frames</p>
+                <p><strong>Frame Consensus:</strong> ${match.voteCount}/${match.totalFrames} frames (${match.consensus}%)</p>
                 <p><strong>Avg Matches:</strong> ${match.avgMatches} features</p>
             `;
         }
@@ -409,6 +646,7 @@ function displayResult(match) {
         `;
         updateStatus(`✓ Matched: ${match.name}`, "success");
     } else {
+        // Handle no match (insufficient features)
         const matchCount = match ? match.matches : 0;
         const voteInfo = (match && match.voteCount)
             ? ` (${match.voteCount}/${match.totalFrames} frames agreed)`
@@ -417,7 +655,13 @@ function displayResult(match) {
         resultDisplay.innerHTML = `
             <div class="result-no-match">
                 <h3>⚠ No Match Found</h3>
-                <p>Try adjusting lighting, angle, or distance.</p>
+                <p>Not enough matching features detected.</p>
+                <p style="margin-top: 1rem;">Try:</p>
+                <ul style="text-align: left; margin: 0.5rem 0; padding-left: 2rem;">
+                    <li>Better lighting</li>
+                    <li>Different angle</li>
+                    <li>Closer distance</li>
+                </ul>
                 <p style="margin-top: 1rem; font-size: 0.9rem; opacity: 0.7;">
                     Found ${matchCount} matches (need 15+)${voteInfo}
                 </p>
@@ -433,7 +677,14 @@ function displayResult(match) {
 function closeResult() {
     document.getElementById("result-modal").style.display = "none";
     const statusEl = document.getElementById("status-overlay");
-    statusEl.style.opacity = "0";
+    statusEl.style.opacity = "1";
+
+    // Restart auto-scan if enabled
+    if (AUTO_SCAN_CONFIG.ENABLED && !scanningActive) {
+        setTimeout(() => {
+            startContinuousScanning();
+        }, 500);
+    }
 }
 
 // Process uploaded file
