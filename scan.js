@@ -241,31 +241,39 @@ function vibrate(pattern = 50) {
     }
 }
 
-// Capture and identify artwork
+// Capture and identify artwork with multi-frame voting
 async function captureAndIdentify() {
     const video = document.getElementById("camera");
     const canvas = document.getElementById("capture-canvas");
+    const statusEl = document.getElementById("status-overlay");
 
-    // Vibrate on capture
+    // Configuration
+    const NUM_FRAMES = 5;
+    const FRAME_DELAY = 250; // ms between frames
+
+    // Initial vibration
     vibrate(50);
 
-    // Capture frame
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0);
-
-    updateStatus("⏳ Processing image...", "loading");
-
-    // Show status overlay during processing
-    const statusEl = document.getElementById("status-overlay");
+    // Show status overlay
     statusEl.style.opacity = "1";
+    updateStatus("📸 Capturing frames...", "loading");
 
-    // Process capture
-    setTimeout(() => {
-        try {
+    try {
+        const frameResults = [];
+
+        // Capture multiple frames
+        for (let i = 0; i < NUM_FRAMES; i++) {
+            updateStatus(`📸 Capturing frame ${i + 1}/${NUM_FRAMES}...`, "loading");
+
+            // Capture current frame
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(video, 0, 0);
+
+            // Extract features and match
             const features = extractORBFeatures(canvas);
-            console.log(`Captured ${features.keypoints.size()} keypoints`);
+            console.log(`Frame ${i + 1}: Captured ${features.keypoints.size()} keypoints`);
 
             const match = matchImage(features.descriptors);
 
@@ -273,20 +281,92 @@ async function captureAndIdentify() {
             features.keypoints.delete();
             features.descriptors.delete();
 
-            displayResult(match);
-
-            // Vibrate based on result
-            if (match && match.matches >= 15) {
-                vibrate([50, 100, 50]); // Success pattern
-            } else {
-                vibrate([100, 50, 100]); // No match pattern
+            // Store result
+            if (match) {
+                frameResults.push(match);
+                console.log(`Frame ${i + 1}: ${match.name} (${match.matches} matches)`);
             }
-        } catch (error) {
-            console.error("Match error:", error);
-            updateStatus(`✗ Error: ${error.message}`, "error");
-            vibrate(200); // Error vibration
+
+            // Wait before next frame (except on last frame)
+            if (i < NUM_FRAMES - 1) {
+                await new Promise(resolve => setTimeout(resolve, FRAME_DELAY));
+            }
         }
-    }, 100);
+
+        // Aggregate results using voting
+        updateStatus("⏳ Analyzing results...", "loading");
+        const aggregatedResult = aggregateFrameResults(frameResults);
+
+        // Display final result
+        displayResult(aggregatedResult);
+
+        // Vibrate based on result
+        if (aggregatedResult && aggregatedResult.matches >= 15) {
+            vibrate([50, 100, 50]); // Success pattern
+        } else {
+            vibrate([100, 50, 100]); // No match pattern
+        }
+
+    } catch (error) {
+        console.error("Multi-frame capture error:", error);
+        updateStatus(`✗ Error: ${error.message}`, "error");
+        vibrate(200); // Error vibration
+    }
+}
+
+// Aggregate results from multiple frames using voting
+function aggregateFrameResults(frameResults) {
+    if (frameResults.length === 0) return null;
+
+    // Count votes for each president
+    const votes = new Map();
+
+    for (const result of frameResults) {
+        if (!votes.has(result.name)) {
+            votes.set(result.name, {
+                name: result.name,
+                description: result.description,
+                url: result.url,
+                voteCount: 0,
+                totalMatches: 0,
+                maxMatches: 0,
+                frameCount: 0
+            });
+        }
+
+        const president = votes.get(result.name);
+        president.voteCount++;
+        president.totalMatches += result.matches;
+        president.maxMatches = Math.max(president.maxMatches, result.matches);
+        president.frameCount++;
+    }
+
+    // Find president with most votes
+    let winner = null;
+    let maxVotes = 0;
+
+    for (const president of votes.values()) {
+        if (president.voteCount > maxVotes) {
+            maxVotes = president.voteCount;
+            winner = president;
+        }
+    }
+
+    if (!winner) return null;
+
+    // Calculate average matches across frames that voted for winner
+    const avgMatches = Math.round(winner.totalMatches / winner.frameCount);
+
+    return {
+        name: winner.name,
+        description: winner.description,
+        url: winner.url,
+        matches: winner.maxMatches, // Use best match count
+        avgMatches: avgMatches,
+        voteCount: winner.voteCount,
+        totalFrames: frameResults.length,
+        confidence: Math.round((winner.voteCount / frameResults.length) * 100)
+    };
 }
 
 // Display match result
@@ -300,6 +380,20 @@ function displayResult(match) {
             Math.round((match.matches / 500) * 100 + 40)
         );
 
+        // Build stats display
+        let statsHTML = `
+            <p><strong>Confidence:</strong> ${confidence}%</p>
+            <p><strong>Best Match:</strong> ${match.matches} features</p>
+        `;
+
+        // Add voting stats if available (multi-frame capture)
+        if (match.voteCount && match.totalFrames) {
+            statsHTML += `
+                <p><strong>Frame Consensus:</strong> ${match.voteCount}/${match.totalFrames} frames</p>
+                <p><strong>Avg Matches:</strong> ${match.avgMatches} features</p>
+            `;
+        }
+
         resultDisplay.innerHTML = `
             <div class="result-match">
                 <img src="${match.url}" alt="${match.name}">
@@ -308,20 +402,24 @@ function displayResult(match) {
                     <h2>${match.name}</h2>
                     <p>${match.description}</p>
                     <div class="result-stats">
-                        <p><strong>Confidence:</strong> ${confidence}%</p>
-                        <p><strong>Matches:</strong> ${match.matches}</p>
+                        ${statsHTML}
                     </div>
                 </div>
             </div>
         `;
         updateStatus(`✓ Matched: ${match.name}`, "success");
     } else {
+        const matchCount = match ? match.matches : 0;
+        const voteInfo = (match && match.voteCount)
+            ? ` (${match.voteCount}/${match.totalFrames} frames agreed)`
+            : '';
+
         resultDisplay.innerHTML = `
             <div class="result-no-match">
                 <h3>⚠ No Match Found</h3>
                 <p>Try adjusting lighting, angle, or distance.</p>
                 <p style="margin-top: 1rem; font-size: 0.9rem; opacity: 0.7;">
-                    Found ${match ? match.matches : 0} matches (need 15+)
+                    Found ${matchCount} matches (need 15+)${voteInfo}
                 </p>
             </div>
         `;

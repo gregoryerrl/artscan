@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generate Training Descriptors</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        #status {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .progress {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .success {
+            color: #27ae60;
+        }
+        .error {
+            color: #e74c3c;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin: 10px 5px;
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        .info {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 4px solid #3498db;
+        }
+    </style>
+</head>
+<body>
+    <h1>Generate Training Descriptors</h1>
+    <p>Process augmented images from the <code>/train</code> folder to generate robust descriptors.</p>
+
+    <div class="info">
+        <strong>Info:</strong> This will process all augmented images (originals + darkened/brightened/sheared versions).
+        Multiple descriptors per president will be generated, allowing the scanner to handle various image conditions.
+    </div>
+
+    <button id="start-btn" onclick="startProcessing()" disabled>Start Processing</button>
+    <button id="download-btn" onclick="downloadJSON()" disabled>Download descriptors.json</button>
+
+    <div id="status">Waiting to start...</div>
+
+    <script>
+        let cv = null;
+        let generatedData = null;
+
+        // President metadata mapping (from existing descriptors.json)
+        const presidentMetadata = {
+            'emma-smith': {
+                id: 1,
+                name: 'Emma Smith (Emma Hale Smith)',
+                description: 'Emma Smith (Emma Hale Smith), by Lee Greene Richards (62509); GAK 405; GAB 88; Primary manual 5-22; Doctrine and Covenants 25. Emma Smith was the first Relief Society General President, serving from 1842 to 1844.'
+            },
+            'eliza-snow': {
+                id: 2,
+                name: 'Eliza R. Snow (Eliza Roxey Snow)',
+                description: 'Eliza R. Snow (Eliza Roxey Snow), by Sutcliffe Maudsley (62510); GAK 406; GAB 89. Eliza R. Snow was the second Relief Society General President, serving from 1866 to 1887.'
+            },
+            'zina-young': {
+                id: 3,
+                name: 'Zina Diantha Huntington Young',
+                description: 'Zina Diantha Huntington Young (62511); GAB 90. Zina Diantha Huntington Young was the third Relief Society General President, serving from 1888 to 1901.'
+            },
+            'bathsheba-smith': {
+                id: 4,
+                name: 'Bathsheba W. Smith (Bathsheba Wilson Bigler Smith)',
+                description: 'Bathsheba W. Smith (Bathsheba Wilson Bigler Smith) (62512); GAB 91. Bathsheba W. Smith was the fourth Relief Society General President, serving from 1901 to 1910.'
+            },
+            'emmeline-wells': {
+                id: 5,
+                name: 'Emmeline B. Wells (Emmeline Blanche Woodward Wells)',
+                description: 'Emmeline B. Wells (Emmeline Blanche Woodward Wells) (62513); GAB 92. Emmeline B. Wells was the fifth Relief Society General President, serving from 1910 to 1921.'
+            },
+            'clarissa-williams': {
+                id: 6,
+                name: 'Clarissa Smith Williams (Clarissa Smith Williams)',
+                description: 'Clarissa Smith Williams (62514); GAB 93. Clarissa Smith Williams was the sixth Relief Society General President, serving from 1921 to 1928.'
+            },
+            'louise-robison': {
+                id: 7,
+                name: 'Louise Yates Robison',
+                description: 'Louise Yates Robison (62515); GAB 94. Louise Yates Robison was the seventh Relief Society General President, serving from 1928 to 1939.'
+            },
+            'amy-lyman': {
+                id: 8,
+                name: 'Amy Brown Lyman',
+                description: 'Amy Brown Lyman (62516); GAB 95. Amy Brown Lyman was the eighth Relief Society General President, serving from 1940 to 1945.'
+            },
+            'belle-spafford': {
+                id: 9,
+                name: 'Belle Smith Spafford (Belle Smith Spafford)',
+                description: 'Belle Smith Spafford (62517); GAB 96. Belle Smith Spafford was the ninth Relief Society General President, serving from 1945 to 1974.'
+            },
+            'barbara-b-smith': {
+                id: 10,
+                name: 'Barbara Bradshaw Smith',
+                description: 'Barbara Bradshaw Smith (62518); GAB 97. Barbara Bradshaw Smith was the tenth Relief Society General President, serving from 1974 to 1984.'
+            },
+            'barbara-winder': {
+                id: 11,
+                name: 'Barbara Woodhead Winder',
+                description: 'Barbara Woodhead Winder (62519); GAB 98. Barbara Woodhead Winder was the eleventh Relief Society General President, serving from 1984 to 1990.'
+            },
+            'elaine-jack': {
+                id: 12,
+                name: 'Elaine Low Jack',
+                description: 'Elaine Low Jack (62520); GAB 99. Elaine Low Jack was the twelfth Relief Society General President, serving from 1990 to 1997.'
+            },
+            'mary-smoot': {
+                id: 13,
+                name: 'Mary Ellen Wood Smoot',
+                description: 'Mary Ellen Wood Smoot (62521); GAB 100. Mary Ellen Wood Smoot was the thirteenth Relief Society General President, serving from 1997 to 2002.'
+            },
+            'bonnie-parkin': {
+                id: 14,
+                name: 'Bonnie Dansie Parkin',
+                description: 'Bonnie Dansie Parkin (62522); GAB 101. Bonnie Dansie Parkin was the fourteenth Relief Society General President, serving from 2002 to 2007.'
+            },
+            'julie-beck': {
+                id: 15,
+                name: 'Julie Bangerter Beck',
+                description: 'Julie Bangerter Beck (62523); GAB 102. Julie Bangerter Beck was the fifteenth Relief Society General President, serving from 2007 to 2012.'
+            },
+            'linda-burton': {
+                id: 16,
+                name: 'Linda K. Burton',
+                description: 'Linda K. Burton (62524); GAB 103. Linda K. Burton was the sixteenth Relief Society General President, serving from 2012 to 2017.'
+            },
+            'jean-bingham': {
+                id: 17,
+                name: 'Jean B. Bingham',
+                description: 'Jean B. Bingham (62525); GAB 104. Jean B. Bingham is the seventeenth and current Relief Society General President, serving from 2017 to present.'
+            }
+        };
+
+        // Set up OpenCV module BEFORE loading opencv.js
+        var Module = {
+            onRuntimeInitialized: function() {
+                cv = window.cv;
+                log('✓ OpenCV.js loaded and ready', 'success');
+                document.getElementById('start-btn').disabled = false;
+            }
+        };
+
+        function log(message, className = '') {
+            const status = document.getElementById('status');
+            const line = document.createElement('div');
+            if (className) line.className = className;
+            line.textContent = message;
+            status.appendChild(line);
+            status.scrollTop = status.scrollHeight;
+            console.log(message);
+        }
+
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => resolve(img);
+                img.onerror = (e) => reject(new Error(`Failed to load ${src}`));
+                img.src = src;
+            });
+        }
+
+        function extractORBFeatures(img) {
+            try {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = img.width || img.videoWidth;
+                tempCanvas.height = img.height || img.videoHeight;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                const src = cv.imread(tempCanvas);
+                const gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                const orb = new cv.ORB(500);
+                const keypoints = new cv.KeyPointVector();
+                const descriptors = new cv.Mat();
+
+                orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+                src.delete();
+                gray.delete();
+                orb.delete();
+
+                return { keypoints, descriptors };
+            } catch (error) {
+                console.error('ORB extraction error:', error);
+                throw error;
+            }
+        }
+
+        function serializeDescriptor(mat) {
+            if (!mat || mat.empty()) return null;
+            return {
+                rows: mat.rows,
+                cols: mat.cols,
+                type: mat.type(),
+                data: Array.from(mat.data)
+            };
+        }
+
+        // Extract president key from filename
+        // e.g., "emma-smith.jpg" or "emma-smith_jpg.rf.abc123.jpg" -> "emma-smith"
+        function extractPresidentKey(filename) {
+            return filename.replace(/_jpg\.rf\..*\.jpg$/, '').replace(/\.jpg$/, '');
+        }
+
+        async function getTrainingImages() {
+            // Fetch list of images from train folder
+            // Since we can't directly list directory contents in browser,
+            // we'll construct the list from known presidents and patterns
+            const images = [];
+
+            // Generate list of all possible training images
+            const presidentKeys = Object.keys(presidentMetadata);
+
+            for (const key of presidentKeys) {
+                // Try to load the original image first
+                try {
+                    const originalPath = `../train/${key}.jpg`;
+                    await fetch(originalPath, { method: 'HEAD' });
+                    images.push({ filename: `${key}.jpg`, key });
+                } catch (e) {
+                    // Image doesn't exist, skip
+                }
+            }
+
+            // Note: We'll need to manually list augmented versions
+            // For now, let's scan using a server endpoint or manual list
+            log('⚠️  Note: This tool processes images that exist in /train folder', 'progress');
+            log('   Make sure server is running and train folder is accessible\n', 'progress');
+
+            return images;
+        }
+
+        async function startProcessing() {
+            if (!cv) {
+                log('⚠️  OpenCV.js not loaded yet', 'error');
+                return;
+            }
+
+            document.getElementById('start-btn').disabled = true;
+            log('\n=== Starting Processing ===\n', 'progress');
+
+            try {
+                // Fetch list of training images from server
+                log('Fetching training images list...');
+                const response = await fetch('/api/train-images');
+                let imageFiles = [];
+
+                if (response.ok) {
+                    imageFiles = await response.json();
+                    log(`✓ Found ${imageFiles.length} training images\n`, 'success');
+                } else {
+                    // Fallback: Process a predefined list
+                    log('⚠️  Could not fetch from server, using fallback list', 'error');
+                    log('   Please ensure server.js has train-images endpoint\n', 'progress');
+
+                    // Use a hardcoded list for now
+                    const presidentKeys = Object.keys(presidentMetadata);
+                    for (const key of presidentKeys) {
+                        imageFiles.push(`${key}.jpg`);
+                        // Add known augmented versions (you may need to adjust this)
+                        // For demonstration, we'll just use originals
+                    }
+                }
+
+                const results = [];
+                let idCounter = 1;
+
+                // Process each image
+                for (let i = 0; i < imageFiles.length; i++) {
+                    const filename = imageFiles[i];
+                    const progress = `[${i + 1}/${imageFiles.length}]`;
+                    const presidentKey = extractPresidentKey(filename);
+                    const metadata = presidentMetadata[presidentKey];
+
+                    if (!metadata) {
+                        log(`${progress} ⚠️  Unknown president: ${presidentKey}`, 'error');
+                        continue;
+                    }
+
+                    log(`${progress} Processing: ${metadata.name} (${filename})`);
+
+                    const imgPath = `../train/${filename}`;
+                    try {
+                        const img = await loadImage(imgPath);
+                        log(`${progress} Image loaded: ${img.width}x${img.height}`);
+
+                        const features = extractORBFeatures(img);
+                        const keypointCount = features.keypoints.size();
+
+                        if (keypointCount === 0) {
+                            log(`${progress} ⚠️  No keypoints found, skipping`, 'error');
+                            features.keypoints.delete();
+                            features.descriptors.delete();
+                            continue;
+                        }
+
+                        log(`${progress} Extracted ${keypointCount} keypoints`);
+
+                        const serialized = serializeDescriptor(features.descriptors);
+                        log(`${progress} Serialized: ${serialized.rows}x${serialized.cols}`, 'success');
+
+                        results.push({
+                            id: idCounter++,
+                            name: metadata.name,
+                            description: metadata.description,
+                            url: `train/${filename}`,
+                            descriptors: serialized
+                        });
+
+                        // Clean up
+                        features.keypoints.delete();
+                        features.descriptors.delete();
+
+                    } catch (error) {
+                        log(`${progress} ✗ Error loading ${filename}: ${error.message}`, 'error');
+                    }
+                }
+
+                generatedData = results;
+
+                log('\n=== Processing Complete ===', 'success');
+                log(`✓ Generated descriptors for ${results.length} images`, 'success');
+                log(`✓ Unique IDs assigned: 1 to ${results.length}`, 'success');
+                log('\nClick "Download descriptors.json" to save the file', 'progress');
+
+                document.getElementById('download-btn').disabled = false;
+
+            } catch (error) {
+                log(`\n✗ Error: ${error.message}`, 'error');
+                console.error(error);
+                document.getElementById('start-btn').disabled = false;
+            }
+        }
+
+        function downloadJSON() {
+            if (!generatedData) return;
+
+            const jsonString = JSON.stringify(generatedData, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'descriptors.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            log('\n✓ Downloaded descriptors.json!', 'success');
+            log('Replace lib/descriptors.json with this file to use training data', 'progress');
+        }
+    </script>
+
+    <!-- Load OpenCV.js AFTER Module is defined -->
+    <script async src="../lib/opencv.js"></script>
+</body>
+</html>

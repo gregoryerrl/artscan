@@ -18,3 +18,5 @@ descriptors(*.json
 images-metadata.json
 
 CLAUDE.md
+
+/train

@@ -2,12 +2,27 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import https from 'https';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 8000;
+
+// Train images list endpoint
+app.get('/api/train-images', (req, res) => {
+    const trainDir = path.join(__dirname, 'train');
+    try {
+        const files = fs.readdirSync(trainDir)
+            .filter(file => file.endsWith('.jpg'))
+            .sort();
+        res.json(files);
+    } catch (error) {
+        console.error('Error reading train directory:', error);
+        res.status(500).json({ error: 'Failed to read train directory' });
+    }
+});
 
 // Image proxy endpoint to bypass CORS
 app.get('/api/proxy-image', async (req, res) => {
