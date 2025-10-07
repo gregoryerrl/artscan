@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generate Descriptors</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        #status {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            min-height: 200px;
+            white-space: pre-wrap;
+        }
+        .progress {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .success {
+            color: #27ae60;
+        }
+        .error {
+            color: #e74c3c;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin: 10px 5px;
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>Generate Pre-computed Descriptors</h1>
+    <p>This tool will process all images and generate descriptors.json</p>
+
+    <button id="start-btn" onclick="startProcessing()" disabled>Start Processing</button>
+    <button id="download-btn" onclick="downloadJSON()" disabled>Download descriptors.json</button>
+
+    <div id="status">Waiting to start...</div>
+
+    <script>
+        let cv = null;
+        let generatedData = null;
+
+        // Set up OpenCV module BEFORE loading opencv.js
+        var Module = {
+            onRuntimeInitialized: function() {
+                cv = window.cv;
+                log('✓ OpenCV.js loaded and ready', 'success');
+                document.getElementById('start-btn').disabled = false;
+            }
+        };
+
+        function log(message, className = '') {
+            const status = document.getElementById('status');
+            const line = document.createElement('div');
+            if (className) line.className = className;
+            line.textContent = message;
+            status.appendChild(line);
+            status.scrollTop = status.scrollHeight;
+            console.log(message);
+        }
+
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => resolve(img);
+                img.onerror = (e) => reject(new Error(`Failed to load ${src}`));
+                img.src = src;
+            });
+        }
+
+        function extractORBFeatures(img) {
+            try {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = img.width || img.videoWidth;
+                tempCanvas.height = img.height || img.videoHeight;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                const src = cv.imread(tempCanvas);
+                const gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                const orb = new cv.ORB(500);
+                const keypoints = new cv.KeyPointVector();
+                const descriptors = new cv.Mat();
+
+                orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+                src.delete();
+                gray.delete();
+                orb.delete();
+
+                return { keypoints, descriptors };
+            } catch (error) {
+                console.error('ORB extraction error:', error);
+                throw error;
+            }
+        }
+
+        function serializeDescriptor(mat) {
+            if (!mat || mat.empty()) return null;
+            return {
+                rows: mat.rows,
+                cols: mat.cols,
+                type: mat.type(),
+                data: Array.from(mat.data)
+            };
+        }
+
+        async function startProcessing() {
+            if (!cv) {
+                log('⚠️  OpenCV.js not loaded yet', 'error');
+                return;
+            }
+
+            document.getElementById('start-btn').disabled = true;
+            log('\n=== Starting Processing ===\n', 'progress');
+
+            try {
+                // Load metadata
+                log('Loading temp-metadata.json...');
+                const response = await fetch('../temp-metadata.json');
+                const metadata = await response.json();
+                log(`✓ Loaded ${metadata.length} images metadata`, 'success');
+
+                const results = [];
+
+                // Process each image
+                for (let i = 0; i < metadata.length; i++) {
+                    const item = metadata[i];
+                    const progress = `[${i + 1}/${metadata.length}]`;
+
+                    log(`\n${progress} Processing: ${item.name}`);
+
+                    const imgPath = `../images/${item.filename}`;
+                    const img = await loadImage(imgPath);
+                    log(`${progress} Image loaded: ${img.width}x${img.height}`);
+
+                    const features = extractORBFeatures(img);
+                    log(`${progress} Extracted ${features.keypoints.size()} keypoints`);
+
+                    const serialized = serializeDescriptor(features.descriptors);
+                    log(`${progress} Serialized descriptor: ${serialized.rows}x${serialized.cols}`, 'success');
+
+                    results.push({
+                        id: item.id,
+                        name: item.name,
+                        description: item.description,
+                        url: `images/${item.filename}`,
+                        descriptors: serialized
+                    });
+
+                    // Clean up
+                    features.keypoints.delete();
+                    features.descriptors.delete();
+                }
+
+                generatedData = results;
+
+                log('\n=== Processing Complete ===', 'success');
+                log(`✓ Generated descriptors for ${results.length} images`, 'success');
+                log('\nClick "Download descriptors.json" to save the file', 'progress');
+
+                document.getElementById('download-btn').disabled = false;
+
+            } catch (error) {
+                log(`\n✗ Error: ${error.message}`, 'error');
+                console.error(error);
+                document.getElementById('start-btn').disabled = false;
+            }
+        }
+
+        function downloadJSON() {
+            if (!generatedData) return;
+
+            const jsonString = JSON.stringify(generatedData, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'descriptors.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            log('\n✓ Downloaded descriptors.json!', 'success');
+        }
+    </script>
+
+    <!-- Load OpenCV.js AFTER Module is defined -->
+    <script async src="../lib/opencv.js"></script>
+    <script src="../opencv-cache.js"></script>
+</body>
+</html>

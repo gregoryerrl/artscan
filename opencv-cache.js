@@ -2,7 +2,7 @@
 // Serializes/deserializes OpenCV Mat descriptors for sessionStorage
 
 const CACHE_KEY = 'artscan_processed_artworks';
-const CACHE_VERSION = '1.1';  // v1.1: Descriptors only (keypoints not needed for matching)
+const CACHE_VERSION = '2.0';  // v2.0: Relief Society Presidents dataset with pre-computed descriptors
 
 /**
  * Serialize cv.Mat descriptor to plain object
@@ -46,13 +46,12 @@ function saveProcessedArtworks(referenceData) {
         console.log(`[Cache] Serializing ${referenceData.length} artworks...`);
 
         const serialized = referenceData.map((ref, index) => {
-            console.log(`[Cache] Serializing ${index + 1}/${referenceData.length}: ${ref.title}`);
+            console.log(`[Cache] Serializing ${index + 1}/${referenceData.length}: ${ref.name}`);
             return {
                 id: ref.id,
-                title: ref.title,
-                artist: ref.artist,
-                year: ref.year,
-                img: ref.img,
+                name: ref.name,
+                description: ref.description,
+                url: ref.url,
                 descriptors: serializeDescriptor(ref.descriptors)
                 // Note: keypoints not serialized - not needed for matching
             };
@@ -117,21 +116,20 @@ function loadProcessedArtworks(cv) {
         console.log(`[Cache] Cache age: ${ageMinutes} minutes`);
 
         // Deserialize data
-        console.log(`[Cache] Deserializing ${cacheData.data.length} artworks...`);
+        console.log(`[Cache] Deserializing ${cacheData.data.length} presidents...`);
         const referenceData = cacheData.data.map((item, index) => {
-            console.log(`[Cache] Deserializing ${index + 1}/${cacheData.data.length}: ${item.title}`);
+            console.log(`[Cache] Deserializing ${index + 1}/${cacheData.data.length}: ${item.name}`);
             return {
                 id: item.id,
-                title: item.title,
-                artist: item.artist,
-                year: item.year,
-                img: item.img,
+                name: item.name,
+                description: item.description,
+                url: item.url,
                 descriptors: deserializeDescriptor(cv, item.descriptors),
                 keypoints: new cv.KeyPointVector()  // Empty placeholder - not needed for matching
             };
         });
 
-        console.log(`[Cache] ✓ Successfully loaded ${referenceData.length} artworks from cache`);
+        console.log(`[Cache] ✓ Successfully loaded ${referenceData.length} presidents from cache`);
         return referenceData;
     } catch (error) {
         console.error('[Cache] Failed to load cache:', error);

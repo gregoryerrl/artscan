@@ -29,17 +29,17 @@ function onOpenCvReady() {
     loadArtworks();
 }
 
-// Load artworks from JSON
+// Load pre-computed descriptors from JSON
 async function loadArtworks() {
     try {
-        const response = await fetch("artworks.json");
+        const response = await fetch("lib/descriptors.json");
         artworks = await response.json();
-        console.log(`✓ Loaded ${artworks.length} artworks from JSON`);
-        updateStatus(`✓ Loaded ${artworks.length} artworks. Processing...`, "info");
-        processReferenceImages();
+        console.log(`✓ Loaded ${artworks.length} pre-computed descriptors from JSON`);
+        updateStatus(`✓ Loaded ${artworks.length} presidents. Deserializing...`, "info");
+        deserializeDescriptors();
     } catch (error) {
-        console.error("Error loading artworks:", error);
-        updateStatus(`✗ Error loading artworks: ${error.message}`, "error");
+        console.error("Error loading descriptors:", error);
+        updateStatus(`✗ Error loading descriptors: ${error.message}`, "error");
     }
 }
 
@@ -60,32 +60,35 @@ function updateStatus(message, type = "info") {
     if (type === "loading") statusEl.classList.add("loading");
 }
 
-// Process all reference images and extract ORB features
-async function processReferenceImages() {
+// Deserialize pre-computed descriptors (no image processing needed!)
+function deserializeDescriptors() {
     try {
-        for (const artwork of artworks) {
-            const img = await loadImage(artwork.img);
-            const features = extractORBFeatures(img);
+        for (const item of artworks) {
+            // Deserialize descriptors from JSON
+            const descriptorObj = item.descriptors;
+            const mat = new cv.Mat(descriptorObj.rows, descriptorObj.cols, descriptorObj.type);
+            mat.data.set(descriptorObj.data);
 
             referenceData.push({
-                ...artwork,
-                descriptors: features.descriptors,
-                keypoints: features.keypoints,
+                id: item.id,
+                name: item.name,
+                description: item.description,
+                url: item.url,
+                descriptors: mat,
+                keypoints: new cv.KeyPointVector() // Empty placeholder - not needed for matching
             });
 
-            console.log(
-                `✓ Processed ${artwork.title}: ${features.keypoints.size()} keypoints`
-            );
+            console.log(`✓ Deserialized ${item.name}: ${descriptorObj.rows} descriptors`);
         }
 
-        updateStatus(`✓ Ready! ${referenceData.length} artworks loaded.`, "success");
+        updateStatus(`✓ Ready! ${referenceData.length} presidents loaded.`, "success");
 
-        // Auto-request camera after processing
+        // Auto-request camera after loading
         setTimeout(() => {
             requestCameraAccess();
         }, 500);
     } catch (error) {
-        console.error("Error processing reference images:", error);
+        console.error("Error deserializing descriptors:", error);
         updateStatus(`✗ Error: ${error.message}`, "error");
     }
 }
@@ -299,12 +302,11 @@ function displayResult(match) {
 
         resultDisplay.innerHTML = `
             <div class="result-match">
-                <img src="${match.img}" alt="${match.title}">
+                <img src="${match.url}" alt="${match.name}">
                 <div class="result-info">
                     <h3>✓ Match Found!</h3>
-                    <h2>${match.title}</h2>
-                    <p><strong>Artist:</strong> ${match.artist}</p>
-                    <p><strong>Year:</strong> ${match.year}</p>
+                    <h2>${match.name}</h2>
+                    <p>${match.description}</p>
                     <div class="result-stats">
                         <p><strong>Confidence:</strong> ${confidence}%</p>
                         <p><strong>Matches:</strong> ${match.matches}</p>
@@ -312,7 +314,7 @@ function displayResult(match) {
                 </div>
             </div>
         `;
-        updateStatus(`✓ Matched: ${match.title}`, "success");
+        updateStatus(`✓ Matched: ${match.name}`, "success");
     } else {
         resultDisplay.innerHTML = `
             <div class="result-no-match">

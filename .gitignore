@@ -12,4 +12,9 @@ yarn-error.log*
 dist/
 build/
 
+# Temporary files
+temp-metadata.json
+descriptors(*.json
+images-metadata.json
+
 CLAUDE.md

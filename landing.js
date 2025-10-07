@@ -1,38 +1,37 @@
-// Landing Page - Load and display artworks
+// Landing Page - Load and display Relief Society Presidents
 
-let artworks = [];
+let presidents = [];
 let displayedCount = 12;
 const loadMoreIncrement = 12;
 
-// Load artworks from JSON
+// Load presidents from JSON
 async function loadArtworks() {
     try {
-        const response = await fetch("artworks.json");
-        artworks = await response.json();
+        const response = await fetch("lib/descriptors.json");
+        presidents = await response.json();
 
-        // Display initial artworks
+        // Display initial presidents
         displayArtworks();
     } catch (error) {
-        console.error("Error loading artworks:", error);
+        console.error("Error loading presidents:", error);
     }
 }
 
-// Display artworks in grid
+// Display presidents in grid
 function displayArtworks() {
     const grid = document.getElementById("artwork-grid");
-    const artworksToShow = artworks.slice(0, displayedCount);
+    const presidentsToShow = presidents.slice(0, displayedCount);
 
-    grid.innerHTML = artworksToShow
+    grid.innerHTML = presidentsToShow
         .map(
-            (artwork) => `
+            (president) => `
         <div class="artwork-card">
-            <a href="${artwork.img}" target="_blank">
-                <img src="${artwork.img}" alt="${artwork.title}">
+            <a href="${president.url}" target="_blank">
+                <img src="${president.url}" alt="${president.name}">
             </a>
             <div class="artwork-info">
-                <h3>${artwork.title}</h3>
-                <p class="artist">${artwork.artist}</p>
-                <p class="year">${artwork.year}</p>
+                <h3>${president.name}</h3>
+                <p class="artist">${president.description}</p>
             </div>
         </div>
     `
@@ -41,7 +40,7 @@ function displayArtworks() {
 
     // Show/hide load more button
     const loadMoreBtn = document.getElementById("load-more-btn");
-    if (displayedCount >= artworks.length) {
+    if (displayedCount >= presidents.length) {
         loadMoreBtn.style.display = "none";
     } else {
         loadMoreBtn.style.display = "inline-flex";
