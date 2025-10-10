@@ -1387,7 +1387,7 @@ function displayResult(match) {
                         ${statsHTML}
                     </div>
                     <button id="download-debug-logs-btn" class="btn btn-secondary btn-block" style="margin-top: 1rem; font-size: 0.9rem;">
-                        📊 Download Debug Logs
+                        Download Debug Logs
                     </button>
                 </div>
             </div>
