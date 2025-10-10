@@ -1119,10 +1119,6 @@ async function startContinuousScanning() {
                     DiagnosticLogger.sendBatchToRemote();
                 }
 
-                // Auto-download diagnostic logs
-                console.log("[Diagnostic] Auto-downloading logs...");
-                DiagnosticLogger.exportLogs();
-
                 scanningActive = false;
 
                 // Vibrate success
@@ -1390,10 +1386,21 @@ function displayResult(match) {
                     <div class="result-stats">
                         ${statsHTML}
                     </div>
+                    <button id="copy-logs-btn" class="btn btn-primary btn-block" style="margin-top: 1rem;">
+                        📋 Copy Logs
+                    </button>
                 </div>
             </div>
         `;
         updateStatus(`✓ Matched: ${match.name}`, "success");
+
+        // Add event listener for copy button
+        setTimeout(() => {
+            const copyBtn = document.getElementById("copy-logs-btn");
+            if (copyBtn) {
+                copyBtn.addEventListener("click", () => copyLogsToClipboard(copyBtn));
+            }
+        }, 0);
     } else {
         // Handle no match (insufficient features)
         const matchCount = match ? match.matches : 0;
@@ -1421,6 +1428,94 @@ function displayResult(match) {
     }
 
     resultModal.style.display = "block";
+}
+
+// Copy diagnostic logs to clipboard
+async function copyLogsToClipboard(button) {
+    try {
+        // Get logs data
+        const data = {
+            sessionId: DiagnosticLogger.sessionId,
+            exportTime: new Date().toISOString(),
+            deviceInfo: {
+                userAgent: navigator.userAgent,
+                isMobile: isMobile,
+                screen: {
+                    width: window.screen.width,
+                    height: window.screen.height,
+                    devicePixelRatio: window.devicePixelRatio,
+                },
+            },
+            logs: DiagnosticLogger.logs,
+        };
+
+        // Convert to formatted JSON
+        const jsonText = JSON.stringify(data, null, 2);
+
+        // Copy to clipboard
+        await navigator.clipboard.writeText(jsonText);
+
+        // Show success feedback
+        const originalText = button.textContent;
+        button.textContent = "✓ Copied!";
+        button.disabled = true;
+
+        // Show toast notification
+        showToast("Logs copied to clipboard! Paste anywhere to send.");
+
+        // Reset button after 2 seconds
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.disabled = false;
+        }, 2000);
+
+        console.log("[Diagnostic] Logs copied to clipboard");
+    } catch (error) {
+        console.error("[Diagnostic] Failed to copy logs:", error);
+        showToast("Failed to copy. Please try again.", true);
+    }
+}
+
+// Show toast notification
+function showToast(message, isError = false) {
+    // Create toast element if it doesn't exist
+    let toast = document.getElementById("toast-notification");
+    if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "toast-notification";
+        toast.style.cssText = `
+            position: fixed;
+            bottom: calc(env(safe-area-inset-bottom, 20px) + 80px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: ${isError ? "#e74c3c" : "#27ae60"};
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 10000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            max-width: 80%;
+            text-align: center;
+        `;
+        document.body.appendChild(toast);
+    }
+
+    // Update message and color
+    toast.textContent = message;
+    toast.style.background = isError ? "#e74c3c" : "#27ae60";
+
+    // Show toast
+    setTimeout(() => {
+        toast.style.opacity = "1";
+    }, 10);
+
+    // Hide after 3 seconds
+    setTimeout(() => {
+        toast.style.opacity = "0";
+    }, 3000);
 }
 
 // Close result modal
