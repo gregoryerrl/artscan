@@ -1,23 +1,39 @@
-// Artwork Scanner - Mobile Full-Screen Version
-// Uses 2-layer recognition: face-api.js (primary) + OpenCV.js ORB (fallback)
-// Optimized with WebGL backend for GPU acceleration
+const mobileConfidence = 0.3;
+const desktopConfidence = 0.5;
 
-// Detect mobile device for adaptive configuration
-const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-console.log('[Device] Mobile detected:', isMobile);
+const isMobile =
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+    );
+console.log("[Device] Mobile detected:", isMobile);
 
 // Performance mode info
 if (isMobile) {
-    console.log('%c⚡ Mobile Performance Mode Active', 'color: #FF9800; font-weight: bold; font-size: 14px;');
-    console.log('%c• 7 frames per scan (vs 5 desktop)', 'color: #FF9800;');
-    console.log('%c• 300ms scan interval (vs 600ms desktop)', 'color: #FF9800;');
-    console.log('%c• 50ms frame delay (vs 250ms desktop)', 'color: #FF9800;');
-    console.log('%c• 1920x1080 video (Full HD)', 'color: #FF9800;');
-    console.log('%c• 960x720 face recognition (vs 640x480 desktop)', 'color: #FF9800;');
-    console.log('%c• 1920x1080 ORB matching (vs 1280x720 desktop)', 'color: #FF9800;');
-    console.log('%c• 1000 ORB keypoints (vs 500 desktop)', 'color: #FF9800;');
-    console.log('%c• Aggressive face detection (0.4 confidence)', 'color: #FF9800;');
-    console.log('%c• WebGL GPU acceleration enabled', 'color: #FF9800;');
+    console.log(
+        "%c⚡ Mobile Performance Mode Active",
+        "color: #FF9800; font-weight: bold; font-size: 14px;"
+    );
+    console.log("%c• 7 frames per scan (vs 5 desktop)", "color: #FF9800;");
+    console.log(
+        "%c• 300ms scan interval (vs 600ms desktop)",
+        "color: #FF9800;"
+    );
+    console.log("%c• 50ms frame delay (vs 250ms desktop)", "color: #FF9800;");
+    console.log("%c• 1920x1080 video (Full HD)", "color: #FF9800;");
+    console.log(
+        "%c• 960x720 face recognition (vs 640x480 desktop)",
+        "color: #FF9800;"
+    );
+    console.log(
+        "%c• 1920x1080 ORB matching (vs 1280x720 desktop)",
+        "color: #FF9800;"
+    );
+    console.log("%c• 1000 ORB keypoints (vs 500 desktop)", "color: #FF9800;");
+    console.log(
+        "%c• Aggressive face detection (0.4 confidence)",
+        "color: #FF9800;"
+    );
+    console.log("%c• WebGL GPU acceleration enabled", "color: #FF9800;");
 }
 
 let cv = null;
@@ -35,11 +51,11 @@ let scanningActive = false;
 let scanHistory = []; // Sliding window of recent scan attempts
 const AUTO_SCAN_CONFIG = {
     ENABLED: true,
-    SCAN_INTERVAL: isMobile ? 300 : 600,    // Aggressive scanning on mobile (GPU-accelerated)
-    HISTORY_SIZE: 3,                        // Remember last 3 attempts
-    REQUIRE_CONSISTENCY: true,              // Require same president in 2/3 attempts
-    NUM_FRAMES: isMobile ? 7 : 5,           // More frames on mobile for better accuracy
-    FRAME_DELAY: isMobile ? 50 : 250        // Fast frame capture on mobile (GPU handles it)
+    SCAN_INTERVAL: isMobile ? 300 : 600, // Aggressive scanning on mobile (GPU-accelerated)
+    HISTORY_SIZE: 3, // Remember last 3 attempts
+    REQUIRE_CONSISTENCY: true, // Require same president in 2/3 attempts
+    NUM_FRAMES: isMobile ? 7 : 5, // More frames on mobile for better accuracy
+    FRAME_DELAY: isMobile ? 50 : 250, // Fast frame capture on mobile (GPU handles it)
 };
 
 // ============================================================================
@@ -50,21 +66,21 @@ const AUTO_SCAN_CONFIG = {
 const DiagnosticLogger = {
     logs: [],
     sessionId: Date.now().toString(36) + Math.random().toString(36).substr(2),
-    remoteEndpoint: 'https://greg-logger.gregoryerrl.workers.dev/log', // Cloudflare Workers logging
+    remoteEndpoint: "https://greg-logger.gregoryerrl.workers.dev/log", // Cloudflare Workers logging
     hasUploaded: false, // Track if logs have been uploaded
 
     // Initialize with device info
     init() {
-        this.log('session_start', {
+        this.log("session_start", {
             sessionId: this.sessionId,
             userAgent: navigator.userAgent,
             isMobile: isMobile,
             screen: {
                 width: window.screen.width,
                 height: window.screen.height,
-                devicePixelRatio: window.devicePixelRatio
+                devicePixelRatio: window.devicePixelRatio,
             },
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
         });
     },
 
@@ -73,7 +89,7 @@ const DiagnosticLogger = {
         const entry = {
             timestamp: Date.now(),
             event: event,
-            ...data
+            ...data,
         };
 
         this.logs.push(entry);
@@ -87,17 +103,17 @@ const DiagnosticLogger = {
     // Send all logs in one batch POST
     async sendBatchToRemote() {
         if (!this.remoteEndpoint) {
-            console.warn('[Diagnostic] No remote endpoint configured');
+            console.warn("[Diagnostic] No remote endpoint configured");
             return false;
         }
 
         if (this.logs.length === 0) {
-            console.warn('[Diagnostic] No logs to send');
+            console.warn("[Diagnostic] No logs to send");
             return false;
         }
 
         const payload = JSON.stringify({
-            app: 'artscan',
+            app: "artscan",
             sessionId: this.sessionId,
             deviceInfo: {
                 userAgent: navigator.userAgent,
@@ -105,49 +121,60 @@ const DiagnosticLogger = {
                 screen: {
                     width: window.screen.width,
                     height: window.screen.height,
-                    devicePixelRatio: window.devicePixelRatio
-                }
+                    devicePixelRatio: window.devicePixelRatio,
+                },
             },
             logs: this.logs,
             totalLogs: this.logs.length,
-            uploadedAt: new Date().toISOString()
+            uploadedAt: new Date().toISOString(),
         });
 
         try {
-            console.log(`[Diagnostic] Sending ${this.logs.length} logs to remote...`);
+            console.log(
+                `[Diagnostic] Sending ${this.logs.length} logs to remote...`
+            );
 
             // Use sendBeacon for reliability on mobile (works even if page closes)
             if (navigator.sendBeacon) {
-                const blob = new Blob([payload], { type: 'application/json' });
+                const blob = new Blob([payload], {type: "application/json"});
                 const sent = navigator.sendBeacon(this.remoteEndpoint, blob);
 
                 if (sent) {
-                    console.log('[Diagnostic] ✓ Logs queued for upload (sendBeacon)');
+                    console.log(
+                        "[Diagnostic] ✓ Logs queued for upload (sendBeacon)"
+                    );
                     this.hasUploaded = true;
                     return true;
                 } else {
-                    console.warn('[Diagnostic] sendBeacon failed, falling back to fetch');
+                    console.warn(
+                        "[Diagnostic] sendBeacon failed, falling back to fetch"
+                    );
                 }
             }
 
             // Fallback to fetch if sendBeacon unavailable or failed
             const response = await fetch(this.remoteEndpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
                 body: payload,
-                keepalive: true  // Keep request alive even if page navigates
+                keepalive: true, // Keep request alive even if page navigates
             });
 
             if (response.ok) {
-                console.log('[Diagnostic] ✓ Logs uploaded successfully (fetch)');
+                console.log(
+                    "[Diagnostic] ✓ Logs uploaded successfully (fetch)"
+                );
                 this.hasUploaded = true;
                 return true;
             } else {
-                console.error('[Diagnostic] Failed to upload logs:', response.status);
+                console.error(
+                    "[Diagnostic] Failed to upload logs:",
+                    response.status
+                );
                 return false;
             }
         } catch (error) {
-            console.error('[Diagnostic] Failed to send logs to remote:', error);
+            console.error("[Diagnostic] Failed to send logs to remote:", error);
             return false;
         }
     },
@@ -163,41 +190,45 @@ const DiagnosticLogger = {
                 screen: {
                     width: window.screen.width,
                     height: window.screen.height,
-                    devicePixelRatio: window.devicePixelRatio
-                }
+                    devicePixelRatio: window.devicePixelRatio,
+                },
             },
-            logs: this.logs
+            logs: this.logs,
         };
 
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+            type: "application/json",
+        });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        const a = document.createElement("a");
         a.href = url;
         a.download = `artscan-logs-${this.sessionId}.json`;
         a.click();
         URL.revokeObjectURL(url);
 
-        console.log('[Diagnostic] Logs exported');
+        console.log("[Diagnostic] Logs exported");
     },
 
     // Get performance summary
     getSummary() {
-        const attempts = this.logs.filter(l => l.event === 'scan_attempt');
-        const successes = this.logs.filter(l => l.event === 'scan_success');
-        const failures = this.logs.filter(l => l.event === 'scan_failure');
+        const attempts = this.logs.filter((l) => l.event === "scan_attempt");
+        const successes = this.logs.filter((l) => l.event === "scan_success");
+        const failures = this.logs.filter((l) => l.event === "scan_failure");
 
-        const avgFrameTime = attempts.length > 0
-            ? attempts.reduce((sum, a) => sum + (a.duration || 0), 0) / attempts.length
-            : 0;
+        const avgFrameTime =
+            attempts.length > 0
+                ? attempts.reduce((sum, a) => sum + (a.duration || 0), 0) /
+                  attempts.length
+                : 0;
 
         return {
             totalAttempts: attempts.length,
             successes: successes.length,
             failures: failures.length,
             avgFrameTime: Math.round(avgFrameTime),
-            logs: this.logs
+            logs: this.logs,
         };
-    }
+    },
 };
 
 // Initialize diagnostic logger
@@ -209,12 +240,18 @@ window.getDiagnosticSummary = () => DiagnosticLogger.getSummary();
 window.uploadDiagnosticLogs = () => DiagnosticLogger.sendBatchToRemote();
 
 // Log usage instructions
-console.log('%c📊 Diagnostic Logging Active', 'color: #2196F3; font-weight: bold; font-size: 14px;');
-console.log('%c✓ Logs will auto-upload after first successful scan', 'color: #4CAF50;');
-console.log('%cManual upload: uploadDiagnosticLogs()', 'color: #666;');
-console.log('%cExport logs locally: exportDiagnosticLogs()', 'color: #666;');
-console.log('%cView summary: getDiagnosticSummary()', 'color: #666;');
-console.log('%cSession ID: ' + DiagnosticLogger.sessionId, 'color: #666;');
+console.log(
+    "%c📊 Diagnostic Logging Active",
+    "color: #2196F3; font-weight: bold; font-size: 14px;"
+);
+console.log(
+    "%c✓ Logs will auto-upload after first successful scan",
+    "color: #4CAF50;"
+);
+console.log("%cManual upload: uploadDiagnosticLogs()", "color: #666;");
+console.log("%cExport logs locally: exportDiagnosticLogs()", "color: #666;");
+console.log("%cView summary: getDiagnosticSummary()", "color: #666;");
+console.log("%cSession ID: " + DiagnosticLogger.sessionId, "color: #666;");
 
 // Performance monitoring helper (enhanced with diagnostic logging)
 function logPerformance(label, startTime) {
@@ -225,10 +262,10 @@ function logPerformance(label, startTime) {
 
     // Log to diagnostic system if over threshold
     if (duration > 500) {
-        DiagnosticLogger.log('performance_warning', {
+        DiagnosticLogger.log("performance_warning", {
             label: label,
             duration: duration,
-            threshold: 500
+            threshold: 500,
         });
     }
 
@@ -243,19 +280,25 @@ function resizeForRecognition(sourceCanvas, layer = 1) {
 
     // Layer 1 (face-api.js): Mobile uses higher res (960x720), Desktop conservative (640x480)
     // Layer 2 (ORB): Mobile uses Full HD (1920x1080), Desktop standard (1280x720)
-    const maxWidth = layer === 1
-        ? (isMobile ? 960 : 640)    // Layer 1: 2.25x more pixels on mobile
-        : (isMobile ? 1920 : 1280); // Layer 2: Full HD on mobile
-    const maxHeight = layer === 1
-        ? (isMobile ? 720 : 480)
-        : (isMobile ? 1080 : 720);
+    const maxWidth =
+        layer === 1
+            ? isMobile
+                ? 960
+                : 640 // Layer 1: 2.25x more pixels on mobile
+            : isMobile
+            ? 1920
+            : 1280; // Layer 2: Full HD on mobile
+    const maxHeight =
+        layer === 1 ? (isMobile ? 720 : 480) : isMobile ? 1080 : 720;
 
     const width = sourceCanvas.width;
     const height = sourceCanvas.height;
 
     // If already small enough, return original
     if (width <= maxWidth && height <= maxHeight) {
-        console.log(`[Resize] Layer ${layer}: ${width}x${height} (no resize needed)`);
+        console.log(
+            `[Resize] Layer ${layer}: ${width}x${height} (no resize needed)`
+        );
         return sourceCanvas;
     }
 
@@ -265,18 +308,21 @@ function resizeForRecognition(sourceCanvas, layer = 1) {
     const newHeight = Math.floor(height * scale);
 
     // Create downscaled canvas
-    const resizedCanvas = document.createElement('canvas');
+    const resizedCanvas = document.createElement("canvas");
     resizedCanvas.width = newWidth;
     resizedCanvas.height = newHeight;
-    const ctx = resizedCanvas.getContext('2d', { alpha: false }); // No alpha for performance
+    const ctx = resizedCanvas.getContext("2d", {alpha: false}); // No alpha for performance
 
     // Use high-quality downscaling
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(sourceCanvas, 0, 0, newWidth, newHeight);
 
-    const pixelReduction = Math.round(((width * height) / (newWidth * newHeight)) * 10) / 10;
-    console.log(`[Resize] Layer ${layer}: ${width}x${height} → ${newWidth}x${newHeight} (${pixelReduction}x fewer pixels)`);
+    const pixelReduction =
+        Math.round(((width * height) / (newWidth * newHeight)) * 10) / 10;
+    console.log(
+        `[Resize] Layer ${layer}: ${width}x${height} → ${newWidth}x${newHeight} (${pixelReduction}x fewer pixels)`
+    );
     logPerformance(`Resize (Layer ${layer})`, startTime);
 
     return resizedCanvas;
@@ -288,8 +334,8 @@ function onOpenCvReady() {
     console.log("OpenCV.js loaded:", cv);
 
     // Load face-api.js models in parallel
-    loadFaceApi().catch(err => {
-        console.warn('[Face API] Will use ORB-only mode:', err);
+    loadFaceApi().catch((err) => {
+        console.warn("[Face API] Will use ORB-only mode:", err);
     });
 
     // Check for cached processed data first
@@ -297,7 +343,10 @@ function onOpenCvReady() {
         const cached = window.OpencvCache.loadProcessedArtworks(cv);
         if (cached) {
             referenceData = cached;
-            updateStatus(`✓ Loaded ${referenceData.length} artworks from cache!`, "success");
+            updateStatus(
+                `✓ Loaded ${referenceData.length} artworks from cache!`,
+                "success"
+            );
             setTimeout(() => {
                 requestCameraAccess();
             }, 500);
@@ -314,11 +363,11 @@ function onOpenCvReady() {
 async function loadFaceApi() {
     try {
         // Wait for face-api.js to load (handles script loading race condition)
-        if (typeof faceapi === 'undefined') {
-            console.log('[Face API] Waiting for face-api.js to load...');
+        if (typeof faceapi === "undefined") {
+            console.log("[Face API] Waiting for face-api.js to load...");
             await new Promise((resolve) => {
                 const checkInterval = setInterval(() => {
-                    if (typeof faceapi !== 'undefined') {
+                    if (typeof faceapi !== "undefined") {
                         clearInterval(checkInterval);
                         resolve();
                     }
@@ -332,69 +381,76 @@ async function loadFaceApi() {
             });
 
             // Final check after waiting
-            if (typeof faceapi === 'undefined') {
-                throw new Error('face-api.js failed to load after 10 seconds');
+            if (typeof faceapi === "undefined") {
+                throw new Error("face-api.js failed to load after 10 seconds");
             }
         }
 
-        console.log('[Face API] Initializing WebGL backend...');
+        console.log("[Face API] Initializing WebGL backend...");
 
         const backendStartTime = Date.now();
 
         // Enable WebGL backend for GPU acceleration (10-100x faster than CPU)
-        await faceapi.tf.setBackend('webgl');
+        await faceapi.tf.setBackend("webgl");
         await faceapi.tf.ready();
 
         const backend = faceapi.tf.getBackend();
         const backendInitTime = Date.now() - backendStartTime;
 
-        console.log(`[Face API] ✓ Backend: ${backend}` + (backend === 'webgl' ? ' (GPU-accelerated)' : ' (fallback)'));
+        console.log(
+            `[Face API] ✓ Backend: ${backend}` +
+                (backend === "webgl" ? " (GPU-accelerated)" : " (fallback)")
+        );
 
         // Log backend initialization
-        DiagnosticLogger.log('backend_initialized', {
+        DiagnosticLogger.log("backend_initialized", {
             backend: backend,
             initTime: backendInitTime,
-            isWebGL: backend === 'webgl',
-            isGPUAccelerated: backend === 'webgl'
+            isWebGL: backend === "webgl",
+            isGPUAccelerated: backend === "webgl",
         });
 
-        console.log('[Face API] Loading models...');
+        console.log("[Face API] Loading models...");
         const modelStartTime = Date.now();
 
         // Load the 3 required models
-        await faceapi.nets.ssdMobilenetv1.loadFromUri('lib/face-api');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('lib/face-api');
-        await faceapi.nets.faceRecognitionNet.loadFromUri('lib/face-api');
+        await faceapi.nets.ssdMobilenetv1.loadFromUri("lib/face-api");
+        await faceapi.nets.faceLandmark68Net.loadFromUri("lib/face-api");
+        await faceapi.nets.faceRecognitionNet.loadFromUri("lib/face-api");
 
         const modelLoadTime = Date.now() - modelStartTime;
-        console.log('[Face API] ✓ Models loaded');
+        console.log("[Face API] ✓ Models loaded");
 
         // Log model loading time
-        DiagnosticLogger.log('models_loaded', {
-            duration: modelLoadTime
+        DiagnosticLogger.log("models_loaded", {
+            duration: modelLoadTime,
         });
 
         // Load pre-computed embeddings
-        const response = await fetch('lib/face-embeddings.json');
+        const response = await fetch("lib/face-embeddings.json");
         faceEmbeddingsData = await response.json();
 
         // Create labeled descriptors for FaceMatcher
-        const labeledDescriptors = faceEmbeddingsData.embeddings.map(president => {
-            return new faceapi.LabeledFaceDescriptors(
-                president.name,
-                [new Float32Array(president.descriptor)]
-            );
-        });
+        const labeledDescriptors = faceEmbeddingsData.embeddings.map(
+            (president) => {
+                return new faceapi.LabeledFaceDescriptors(president.name, [
+                    new Float32Array(president.descriptor),
+                ]);
+            }
+        );
 
         // Create FaceMatcher with default threshold (0.6)
         faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
 
         faceApiReady = true;
-        console.log(`[Face API] ✓ Ready! ${faceEmbeddingsData.embeddings.length} presidents loaded`);
-        console.log(`[Face API] ${faceEmbeddingsData.outliersCount} outliers will use ORB fallback`);
-
+        console.log(
+            `[Face API] ✓ Ready! ${faceEmbeddingsData.embeddings.length} presidents loaded`
+        );
+        console.log(
+            `[Face API] ${faceEmbeddingsData.outliersCount} outliers will use ORB fallback`
+        );
     } catch (error) {
-        console.error('[Face API] Failed to load:', error);
+        console.error("[Face API] Failed to load:", error);
         faceApiReady = false;
     }
 }
@@ -404,8 +460,13 @@ async function loadArtworks() {
     try {
         const response = await fetch("lib/descriptors.json");
         artworks = await response.json();
-        console.log(`✓ Loaded ${artworks.length} pre-computed descriptors from JSON`);
-        updateStatus(`✓ Loaded ${artworks.length} presidents. Deserializing...`, "info");
+        console.log(
+            `✓ Loaded ${artworks.length} pre-computed descriptors from JSON`
+        );
+        updateStatus(
+            `✓ Loaded ${artworks.length} presidents. Deserializing...`,
+            "info"
+        );
         deserializeDescriptors();
     } catch (error) {
         console.error("Error loading descriptors:", error);
@@ -436,7 +497,11 @@ function deserializeDescriptors() {
         for (const item of artworks) {
             // Deserialize descriptors from JSON
             const descriptorObj = item.descriptors;
-            const mat = new cv.Mat(descriptorObj.rows, descriptorObj.cols, descriptorObj.type);
+            const mat = new cv.Mat(
+                descriptorObj.rows,
+                descriptorObj.cols,
+                descriptorObj.type
+            );
             mat.data.set(descriptorObj.data);
 
             referenceData.push({
@@ -445,13 +510,18 @@ function deserializeDescriptors() {
                 description: item.description,
                 url: item.url,
                 descriptors: mat,
-                keypoints: new cv.KeyPointVector() // Empty placeholder - not needed for matching
+                keypoints: new cv.KeyPointVector(), // Empty placeholder - not needed for matching
             });
 
-            console.log(`✓ Deserialized ${item.name}: ${descriptorObj.rows} descriptors`);
+            console.log(
+                `✓ Deserialized ${item.name}: ${descriptorObj.rows} descriptors`
+            );
         }
 
-        updateStatus(`✓ Ready! ${referenceData.length} presidents loaded.`, "success");
+        updateStatus(
+            `✓ Ready! ${referenceData.length} presidents loaded.`,
+            "success"
+        );
 
         // Auto-request camera after loading
         setTimeout(() => {
@@ -480,10 +550,10 @@ function loadImage(src) {
 function extractORBFeatures(img) {
     try {
         // Create a temporary canvas to avoid CORS issues
-        const tempCanvas = document.createElement('canvas');
+        const tempCanvas = document.createElement("canvas");
         tempCanvas.width = img.width || img.videoWidth;
         tempCanvas.height = img.height || img.videoHeight;
-        const ctx = tempCanvas.getContext('2d');
+        const ctx = tempCanvas.getContext("2d");
         ctx.drawImage(img, 0, 0);
 
         const src = cv.imread(tempCanvas);
@@ -503,9 +573,9 @@ function extractORBFeatures(img) {
         gray.delete();
         orb.delete();
 
-        return { keypoints, descriptors };
+        return {keypoints, descriptors};
     } catch (error) {
-        console.error('ORB extraction error:', error);
+        console.error("ORB extraction error:", error);
         throw error;
     }
 }
@@ -539,7 +609,7 @@ function matchImage(capturedDescriptors) {
 
         if (goodMatches > bestScore) {
             bestScore = goodMatches;
-            bestMatch = { ...ref, matches: goodMatches };
+            bestMatch = {...ref, matches: goodMatches};
         }
     }
 
@@ -557,101 +627,124 @@ async function recognizePresident(canvas) {
     let result = null;
 
     // Log frame details
-    DiagnosticLogger.log('frame_recognition_start', {
+    DiagnosticLogger.log("frame_recognition_start", {
         originalSize: `${canvas.width}x${canvas.height}`,
         originalPixels: canvas.width * canvas.height,
-        faceApiReady: faceApiReady
+        faceApiReady: faceApiReady,
     });
 
     // LAYER 1: Try face recognition first (PRIMARY - GPU accelerated)
     if (faceApiReady && faceMatcher) {
         const layer1Start = Date.now();
-        console.log('[Layer 1] Attempting face recognition...');
+        console.log("[Layer 1] Attempting face recognition...");
 
         // Downscale to 640x480 for optimal face detection performance
         const resizedCanvas = resizeForRecognition(canvas, 1);
         result = await tryFaceRecognition(resizedCanvas);
 
-        const layer1Duration = logPerformance('Layer 1 (Face Recognition)', layer1Start);
+        const layer1Duration = logPerformance(
+            "Layer 1 (Face Recognition)",
+            layer1Start
+        );
 
         // Log Layer 1 attempt
-        DiagnosticLogger.log('layer1_attempt', {
+        DiagnosticLogger.log("layer1_attempt", {
             duration: layer1Duration,
             resizedSize: `${resizedCanvas.width}x${resizedCanvas.height}`,
-            success: result && result.match !== 'unknown',
-            result: result ? result.match : 'no_face_or_distant'
+            success: result && result.match !== "unknown",
+            result: result ? result.match : "no_face_or_distant",
         });
 
-        if (result && result.match !== 'unknown') {
-            const totalDuration = logPerformance('Total Recognition (Layer 1 success)', overallStart);
+        if (result && result.match !== "unknown") {
+            const totalDuration = logPerformance(
+                "Total Recognition (Layer 1 success)",
+                overallStart
+            );
 
-            DiagnosticLogger.log('recognition_success', {
+            DiagnosticLogger.log("recognition_success", {
                 layer: 1,
-                method: 'face-recognition',
+                method: "face-recognition",
                 president: result.name,
                 distance: result.distance,
-                totalDuration: totalDuration
+                totalDuration: totalDuration,
             });
 
-            console.log(`[Layer 1] ✓ Match: ${result.name} (distance: ${result.distance.toFixed(3)})`);
+            console.log(
+                `[Layer 1] ✓ Match: ${
+                    result.name
+                } (distance: ${result.distance.toFixed(3)})`
+            );
             return {
                 name: result.name,
                 description: result.description,
                 url: result.url,
                 matches: 100, // Placeholder for compatibility
-                method: 'face-recognition',
+                method: "face-recognition",
                 distance: result.distance,
-                confidence: Math.round((1 - Math.min(result.distance, 1)) * 100)
+                confidence: Math.round(
+                    (1 - Math.min(result.distance, 1)) * 100
+                ),
             };
         }
-        console.log('[Layer 1] No face detected or match too distant');
+        console.log("[Layer 1] No face detected or match too distant");
     }
 
     // LAYER 2: Fallback to ORB matching
     const layer2Start = Date.now();
-    console.log('[Layer 2] Attempting ORB matching...');
+    console.log("[Layer 2] Attempting ORB matching...");
 
     // Downscale to 1280x720 for ORB (needs more detail than face recognition)
     const resizedCanvas = resizeForRecognition(canvas, 2);
     result = tryORBMatching(resizedCanvas);
 
-    const layer2Duration = logPerformance('Layer 2 (ORB Matching)', layer2Start);
+    const layer2Duration = logPerformance(
+        "Layer 2 (ORB Matching)",
+        layer2Start
+    );
 
     // Log Layer 2 attempt
-    DiagnosticLogger.log('layer2_attempt', {
+    DiagnosticLogger.log("layer2_attempt", {
         duration: layer2Duration,
         resizedSize: `${resizedCanvas.width}x${resizedCanvas.height}`,
         matches: result ? result.matches : 0,
-        success: result && result.matches >= 20
+        success: result && result.matches >= 20,
     });
 
     if (result && result.matches >= 20) {
-        const totalDuration = logPerformance('Total Recognition (Layer 2 success)', overallStart);
+        const totalDuration = logPerformance(
+            "Total Recognition (Layer 2 success)",
+            overallStart
+        );
 
-        DiagnosticLogger.log('recognition_success', {
+        DiagnosticLogger.log("recognition_success", {
             layer: 2,
-            method: 'orb-matching',
+            method: "orb-matching",
             president: result.name,
             matches: result.matches,
-            totalDuration: totalDuration
+            totalDuration: totalDuration,
         });
 
-        console.log(`[Layer 2] ✓ Match: ${result.name} (matches: ${result.matches})`);
+        console.log(
+            `[Layer 2] ✓ Match: ${result.name} (matches: ${result.matches})`
+        );
         return {
             ...result,
-            method: 'orb-matching'
+            method: "orb-matching",
         };
     }
 
-    const totalDuration = logPerformance('Total Recognition (no match)', overallStart);
+    const totalDuration = logPerformance(
+        "Total Recognition (no match)",
+        overallStart
+    );
 
-    DiagnosticLogger.log('recognition_failure', {
+    DiagnosticLogger.log("recognition_failure", {
         totalDuration: totalDuration,
         layer1Attempted: faceApiReady && faceMatcher,
-        layer2Matches: result ? result.matches : 0
+        layer2Matches: result ? result.matches : 0,
     });
 
-    console.log('[Layer 2] No match found');
+    console.log("[Layer 2] No match found");
     return null;
 }
 
@@ -661,8 +754,8 @@ async function tryFaceRecognition(canvas) {
         // Mobile: Lower confidence threshold for faster detection at angles
         // Desktop: Default threshold for accuracy
         const options = new faceapi.SsdMobilenetv1Options({
-            minConfidence: isMobile ? 0.4 : 0.5,  // More aggressive on mobile
-            maxResults: 1                          // Only need one face
+            minConfidence: isMobile ? mobileConfidence : desktopConfidence, // More aggressive on mobile
+            maxResults: 1, // Only need one face
         });
 
         // Detect face and extract descriptor
@@ -682,28 +775,29 @@ async function tryFaceRecognition(canvas) {
         // bestMatch.distance = Euclidean distance (lower = better)
         // Default threshold is 0.6
 
-        if (bestMatch.label !== 'unknown') {
+        if (bestMatch.label !== "unknown") {
             // Find full president data from embeddings
             const presidentData = faceEmbeddingsData.embeddings.find(
-                p => p.name === bestMatch.label
+                (p) => p.name === bestMatch.label
             );
 
             // Find description from reference data (for full info)
-            const refData = referenceData.find(r => r.name === bestMatch.label);
+            const refData = referenceData.find(
+                (r) => r.name === bestMatch.label
+            );
 
             return {
                 name: bestMatch.label,
-                description: refData ? refData.description : '',
-                url: presidentData ? presidentData.url : '',
+                description: refData ? refData.description : "",
+                url: presidentData ? presidentData.url : "",
                 distance: bestMatch.distance,
-                match: bestMatch.label
+                match: bestMatch.label,
             };
         }
 
         return null;
-
     } catch (error) {
-        console.error('[Face Recognition] Error:', error);
+        console.error("[Face Recognition] Error:", error);
         return null;
     }
 }
@@ -714,7 +808,11 @@ function tryORBMatching(canvas) {
         // Extract ORB features
         const features = extractORBFeatures(canvas);
 
-        if (!features || !features.descriptors || features.descriptors.rows === 0) {
+        if (
+            !features ||
+            !features.descriptors ||
+            features.descriptors.rows === 0
+        ) {
             if (features) {
                 features.descriptors?.delete();
                 features.keypoints?.delete();
@@ -730,9 +828,8 @@ function tryORBMatching(canvas) {
         features.keypoints.delete();
 
         return match;
-
     } catch (error) {
-        console.error('[ORB Matching] Error:', error);
+        console.error("[ORB Matching] Error:", error);
         return null;
     }
 }
@@ -742,7 +839,9 @@ async function requestCameraAccess() {
     try {
         // Check if mediaDevices is available
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error("Camera API not available. Use HTTPS or modern browser.");
+            throw new Error(
+                "Camera API not available. Use HTTPS or modern browser."
+            );
         }
 
         updateStatus("📷 Requesting camera access...", "loading");
@@ -753,14 +852,18 @@ async function requestCameraAccess() {
         // Desktop: 1920x1080, Mobile: 1280x720 (downscaled further during recognition)
         let constraints = {
             video: {
-                facingMode: { ideal: "environment" },
-                width: { ideal: 1920 },     // Full HD on all devices (GPU-accelerated)
-                height: { ideal: 1080 },
+                facingMode: {ideal: "environment"},
+                width: {ideal: 1920}, // Full HD on all devices (GPU-accelerated)
+                height: {ideal: 1080},
             },
             audio: false,
         };
 
-        console.log(`[Camera] Requesting ${constraints.video.width.ideal}x${constraints.video.height.ideal} (${isMobile ? 'mobile' : 'desktop'} mode)`);
+        console.log(
+            `[Camera] Requesting ${constraints.video.width.ideal}x${
+                constraints.video.height.ideal
+            } (${isMobile ? "mobile" : "desktop"} mode)`
+        );
 
         try {
             stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -768,7 +871,7 @@ async function requestCameraAccess() {
             console.log("Trying simplified constraints...", e);
             // Fallback: try without specific constraints
             stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment" },
+                video: {facingMode: "environment"},
                 audio: false,
             });
         }
@@ -790,7 +893,10 @@ async function requestCameraAccess() {
         } else {
             // Manual mode: Show capture button
             document.getElementById("capture-btn").style.display = "block";
-            updateStatus("✓ Point camera at artwork and tap to scan", "success");
+            updateStatus(
+                "✓ Point camera at artwork and tap to scan",
+                "success"
+            );
 
             // Hide status after 3 seconds
             setTimeout(() => {
@@ -799,7 +905,6 @@ async function requestCameraAccess() {
                 statusEl.style.transition = "opacity 0.5s";
             }, 3000);
         }
-
     } catch (error) {
         console.error("Camera error:", error);
         updateStatus(`✗ Camera access denied`, "error");
@@ -841,7 +946,10 @@ async function captureAndIdentify() {
 
         // Capture multiple frames
         for (let i = 0; i < NUM_FRAMES; i++) {
-            updateStatus(`📸 Capturing frame ${i + 1}/${NUM_FRAMES}...`, "loading");
+            updateStatus(
+                `📸 Capturing frame ${i + 1}/${NUM_FRAMES}...`,
+                "loading"
+            );
 
             // Capture current frame
             canvas.width = video.videoWidth;
@@ -855,12 +963,18 @@ async function captureAndIdentify() {
             // Store result
             if (match) {
                 frameResults.push(match);
-                console.log(`Frame ${i + 1}: ${match.name} (${match.method}) - ${match.matches || match.distance?.toFixed(3)} features`);
+                console.log(
+                    `Frame ${i + 1}: ${match.name} (${match.method}) - ${
+                        match.matches || match.distance?.toFixed(3)
+                    } features`
+                );
             }
 
             // Wait before next frame (except on last frame)
             if (i < NUM_FRAMES - 1) {
-                await new Promise(resolve => setTimeout(resolve, FRAME_DELAY));
+                await new Promise((resolve) =>
+                    setTimeout(resolve, FRAME_DELAY)
+                );
             }
         }
 
@@ -877,7 +991,6 @@ async function captureAndIdentify() {
         } else {
             vibrate([100, 50, 100]); // No match pattern
         }
-
     } catch (error) {
         console.error("Multi-frame capture error:", error);
         updateStatus(`✗ Error: ${error.message}`, "error");
@@ -890,7 +1003,7 @@ async function startContinuousScanning() {
     if (!AUTO_SCAN_CONFIG.ENABLED) return;
 
     scanningActive = true;
-    console.log('🔍 Starting continuous auto-scan mode');
+    console.log("🔍 Starting continuous auto-scan mode");
 
     const video = document.getElementById("camera");
     const canvas = document.getElementById("capture-canvas");
@@ -905,10 +1018,10 @@ async function startContinuousScanning() {
             updateStatus("🔍 Scanning... Hold steady on portrait", "loading");
 
             // Log scan attempt start
-            DiagnosticLogger.log('scan_attempt_start', {
+            DiagnosticLogger.log("scan_attempt_start", {
                 attemptNumber: attemptCount,
                 numFrames: AUTO_SCAN_CONFIG.NUM_FRAMES,
-                scanHistorySize: scanHistory.length
+                scanHistorySize: scanHistory.length,
             });
 
             const frameResults = [];
@@ -922,7 +1035,12 @@ async function startContinuousScanning() {
                 ctx.drawImage(video, 0, 0);
 
                 // Show live feedback
-                updateStatus(`🔍 Analyzing frame (${i + 1}/${AUTO_SCAN_CONFIG.NUM_FRAMES})...`, "loading");
+                updateStatus(
+                    `🔍 Analyzing frame (${i + 1}/${
+                        AUTO_SCAN_CONFIG.NUM_FRAMES
+                    })...`,
+                    "loading"
+                );
 
                 // Use 2-layer recognition (face-api.js + ORB fallback)
                 const match = await recognizePresident(canvas);
@@ -930,12 +1048,18 @@ async function startContinuousScanning() {
                 // Store result
                 if (match) {
                     frameResults.push(match);
-                    console.log(`[Continuous Scan] Frame ${i + 1}: ${match.name} (${match.method})`);
+                    console.log(
+                        `[Continuous Scan] Frame ${i + 1}: ${match.name} (${
+                            match.method
+                        })`
+                    );
                 }
 
                 // Wait before next frame
                 if (i < AUTO_SCAN_CONFIG.NUM_FRAMES - 1) {
-                    await new Promise(resolve => setTimeout(resolve, AUTO_SCAN_CONFIG.FRAME_DELAY));
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, AUTO_SCAN_CONFIG.FRAME_DELAY)
+                    );
                 }
             }
 
@@ -945,17 +1069,19 @@ async function startContinuousScanning() {
             const attemptDuration = Date.now() - attemptStartTime;
 
             // Log scan attempt result
-            DiagnosticLogger.log('scan_attempt_complete', {
+            DiagnosticLogger.log("scan_attempt_complete", {
                 attemptNumber: attemptCount,
                 duration: attemptDuration,
                 framesProcessed: AUTO_SCAN_CONFIG.NUM_FRAMES,
                 framesWithResults: frameResults.length,
-                aggregatedResult: aggregatedResult ? {
-                    name: aggregatedResult.name,
-                    consensus: aggregatedResult.consensus,
-                    voteCount: aggregatedResult.voteCount,
-                    inconclusive: aggregatedResult.inconclusive
-                } : null
+                aggregatedResult: aggregatedResult
+                    ? {
+                          name: aggregatedResult.name,
+                          consensus: aggregatedResult.consensus,
+                          voteCount: aggregatedResult.voteCount,
+                          inconclusive: aggregatedResult.inconclusive,
+                      }
+                    : null,
             });
 
             // Add to history (sliding window)
@@ -970,22 +1096,22 @@ async function startContinuousScanning() {
             const shouldDisplay = checkForConfidentMatch();
 
             // Log confidence check
-            DiagnosticLogger.log('confidence_check', {
+            DiagnosticLogger.log("confidence_check", {
                 attemptNumber: attemptCount,
                 shouldDisplay: !!shouldDisplay,
                 scanHistorySize: scanHistory.length,
-                result: shouldDisplay ? shouldDisplay.name : null
+                result: shouldDisplay ? shouldDisplay.name : null,
             });
 
             if (shouldDisplay) {
-                console.log('✓ Confident match found!', shouldDisplay);
+                console.log("✓ Confident match found!", shouldDisplay);
 
                 // Log successful scan
-                DiagnosticLogger.log('scan_success', {
+                DiagnosticLogger.log("scan_success", {
                     totalAttempts: attemptCount,
                     president: shouldDisplay.name,
                     method: shouldDisplay.method,
-                    consensus: shouldDisplay.consensus
+                    consensus: shouldDisplay.consensus,
                 });
 
                 // Auto-upload logs after first successful scan
@@ -1005,17 +1131,25 @@ async function startContinuousScanning() {
                 scanHistory = [];
             } else {
                 // Continue scanning after interval
-                await new Promise(resolve => setTimeout(resolve, AUTO_SCAN_CONFIG.SCAN_INTERVAL - (AUTO_SCAN_CONFIG.NUM_FRAMES * AUTO_SCAN_CONFIG.FRAME_DELAY)));
+                await new Promise((resolve) =>
+                    setTimeout(
+                        resolve,
+                        AUTO_SCAN_CONFIG.SCAN_INTERVAL -
+                            AUTO_SCAN_CONFIG.NUM_FRAMES *
+                                AUTO_SCAN_CONFIG.FRAME_DELAY
+                    )
+                );
             }
-
         } catch (error) {
-            console.error('Auto-scan error:', error);
+            console.error("Auto-scan error:", error);
             // Continue scanning despite error
-            await new Promise(resolve => setTimeout(resolve, AUTO_SCAN_CONFIG.SCAN_INTERVAL));
+            await new Promise((resolve) =>
+                setTimeout(resolve, AUTO_SCAN_CONFIG.SCAN_INTERVAL)
+            );
         }
     }
 
-    console.log('⏸️  Auto-scan stopped');
+    console.log("⏸️  Auto-scan stopped");
 }
 
 // Check scan history for confident match
@@ -1026,7 +1160,7 @@ function checkForConfidentMatch() {
 
     // Option 1: Perfect single scan (100% consensus, 5/5 frames, 25+ features)
     if (latestScan.consensus === 100 && latestScan.matches >= 25) {
-        console.log('→ Perfect single scan detected');
+        console.log("→ Perfect single scan detected");
         return latestScan;
     }
 
@@ -1051,8 +1185,14 @@ function checkForConfidentMatch() {
 
         // If same president detected in 2/3 of recent attempts with 80%+ consensus
         const consistency = maxCount / scanHistory.length;
-        if (consistency >= 0.67 && latestScan.name === mostFrequent && latestScan.consensus >= 80) {
-            console.log(`→ Consistent match: ${mostFrequent} (${maxCount}/${scanHistory.length} attempts)`);
+        if (
+            consistency >= 0.67 &&
+            latestScan.name === mostFrequent &&
+            latestScan.consensus >= 80
+        ) {
+            console.log(
+                `→ Consistent match: ${mostFrequent} (${maxCount}/${scanHistory.length} attempts)`
+            );
             return latestScan;
         }
     }
@@ -1064,7 +1204,7 @@ function checkForConfidentMatch() {
 function stopContinuousScanning() {
     scanningActive = false;
     scanHistory = [];
-    console.log('⏹️  Auto-scan stopped by user');
+    console.log("⏹️  Auto-scan stopped by user");
 }
 
 // Aggregate results from multiple frames using weighted voting
@@ -1087,7 +1227,7 @@ function aggregateFrameResults(frameResults) {
                 voteCount: 0,
                 totalMatches: 0,
                 maxMatches: 0,
-                frameCount: 0
+                frameCount: 0,
             });
         }
 
@@ -1099,17 +1239,22 @@ function aggregateFrameResults(frameResults) {
     }
 
     // Calculate weighted scores and sort candidates
-    const candidates = Array.from(votes.values()).map(president => {
-        const avgMatches = president.totalMatches / president.frameCount;
-        // Weighted score: votes (primary) + avg matches (secondary) + max matches (tiebreaker)
-        const score = president.voteCount * 100 + avgMatches * 0.5 + president.maxMatches * 0.1;
-        return {
-            ...president,
-            avgMatches: Math.round(avgMatches),
-            score: score,
-            consensus: president.voteCount / frameResults.length
-        };
-    }).sort((a, b) => b.score - a.score);
+    const candidates = Array.from(votes.values())
+        .map((president) => {
+            const avgMatches = president.totalMatches / president.frameCount;
+            // Weighted score: votes (primary) + avg matches (secondary) + max matches (tiebreaker)
+            const score =
+                president.voteCount * 100 +
+                avgMatches * 0.5 +
+                president.maxMatches * 0.1;
+            return {
+                ...president,
+                avgMatches: Math.round(avgMatches),
+                score: score,
+                consensus: president.voteCount / frameResults.length,
+            };
+        })
+        .sort((a, b) => b.score - a.score);
 
     if (candidates.length === 0) return null;
 
@@ -1124,12 +1269,15 @@ function aggregateFrameResults(frameResults) {
             topCandidates: runnerUp ? [winner, runnerUp] : [winner],
             voteCount: winner.voteCount,
             totalFrames: frameResults.length,
-            reason: 'insufficient_consensus'
+            reason: "insufficient_consensus",
         };
     }
 
     // Check for tie (votes are close)
-    if (runnerUp && Math.abs(winner.voteCount - runnerUp.voteCount) <= TIE_MARGIN) {
+    if (
+        runnerUp &&
+        Math.abs(winner.voteCount - runnerUp.voteCount) <= TIE_MARGIN
+    ) {
         // Use match quality as tiebreaker
         const qualityDiff = winner.avgMatches - runnerUp.avgMatches;
 
@@ -1140,7 +1288,7 @@ function aggregateFrameResults(frameResults) {
                 topCandidates: [winner, runnerUp],
                 voteCount: winner.voteCount,
                 totalFrames: frameResults.length,
-                reason: 'tie'
+                reason: "tie",
             };
         }
         // Otherwise, winner is determined by quality tiebreaker (continue below)
@@ -1156,7 +1304,7 @@ function aggregateFrameResults(frameResults) {
         voteCount: winner.voteCount,
         totalFrames: frameResults.length,
         consensus: Math.round(winner.consensus * 100),
-        score: Math.round(winner.score)
+        score: Math.round(winner.score),
     };
 }
 
@@ -1168,16 +1316,22 @@ function displayResult(match) {
     // Handle inconclusive results (insufficient consensus or tie)
     if (match && match.inconclusive) {
         const candidates = match.topCandidates || [];
-        const reason = match.reason === 'tie'
-            ? 'Results too close to determine'
-            : 'Insufficient agreement across frames';
+        const reason =
+            match.reason === "tie"
+                ? "Results too close to determine"
+                : "Insufficient agreement across frames";
 
-        let candidatesHTML = '';
+        let candidatesHTML = "";
         if (candidates.length >= 2) {
             candidatesHTML = `
                 <p style="margin-top: 1rem; font-size: 0.95rem;">
                     <strong>Top candidates:</strong><br>
-                    ${candidates.map(c => `• ${c.name} (${c.voteCount}/${match.totalFrames} frames, avg ${c.avgMatches} matches)`).join('<br>')}
+                    ${candidates
+                        .map(
+                            (c) =>
+                                `• ${c.name} (${c.voteCount}/${match.totalFrames} frames, avg ${c.avgMatches} matches)`
+                        )
+                        .join("<br>")}
                 </p>
             `;
         }
@@ -1232,16 +1386,38 @@ function displayResult(match) {
                     <div class="result-stats">
                         ${statsHTML}
                     </div>
+                    <button id="download-debug-logs-btn" class="btn btn-secondary btn-block" style="margin-top: 1rem; font-size: 0.9rem;">
+                        📊 Download Debug Logs
+                    </button>
                 </div>
             </div>
         `;
         updateStatus(`✓ Matched: ${match.name}`, "success");
+
+        // Add event listener for download button
+        setTimeout(() => {
+            const downloadBtn = document.getElementById(
+                "download-debug-logs-btn"
+            );
+            if (downloadBtn) {
+                downloadBtn.addEventListener("click", () => {
+                    DiagnosticLogger.exportLogs();
+                    downloadBtn.textContent = "✓ Downloaded!";
+                    downloadBtn.disabled = true;
+                    setTimeout(() => {
+                        downloadBtn.textContent = "📊 Download Debug Logs";
+                        downloadBtn.disabled = false;
+                    }, 2000);
+                });
+            }
+        }, 0);
     } else {
         // Handle no match (insufficient features)
         const matchCount = match ? match.matches : 0;
-        const voteInfo = (match && match.voteCount)
-            ? ` (${match.voteCount}/${match.totalFrames} frames agreed)`
-            : '';
+        const voteInfo =
+            match && match.voteCount
+                ? ` (${match.voteCount}/${match.totalFrames} frames agreed)`
+                : "";
 
         resultDisplay.innerHTML = `
             <div class="result-no-match">
@@ -1292,7 +1468,9 @@ function processUploadedFile(file) {
             setTimeout(() => {
                 try {
                     const features = extractORBFeatures(img);
-                    console.log(`Uploaded image: ${features.keypoints.size()} keypoints`);
+                    console.log(
+                        `Uploaded image: ${features.keypoints.size()} keypoints`
+                    );
 
                     const match = matchImage(features.descriptors);
 
@@ -1319,16 +1497,24 @@ function processUploadedFile(file) {
 }
 
 // Event Listeners
-document.getElementById("capture-btn").addEventListener("click", captureAndIdentify);
+document
+    .getElementById("capture-btn")
+    .addEventListener("click", captureAndIdentify);
 
-document.getElementById("close-result-btn").addEventListener("click", closeResult);
+document
+    .getElementById("close-result-btn")
+    .addEventListener("click", closeResult);
 
-document.getElementById("scan-again-btn").addEventListener("click", closeResult);
+document
+    .getElementById("scan-again-btn")
+    .addEventListener("click", closeResult);
 
-document.getElementById("request-permission-btn").addEventListener("click", () => {
-    document.getElementById("permission-prompt").style.display = "none";
-    requestCameraAccess();
-});
+document
+    .getElementById("request-permission-btn")
+    .addEventListener("click", () => {
+        document.getElementById("permission-prompt").style.display = "none";
+        requestCameraAccess();
+    });
 
 document.getElementById("use-upload-btn").addEventListener("click", () => {
     document.getElementById("file-upload").click();
