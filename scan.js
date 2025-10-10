@@ -6,6 +6,20 @@
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 console.log('[Device] Mobile detected:', isMobile);
 
+// Performance mode info
+if (isMobile) {
+    console.log('%c⚡ Mobile Performance Mode Active', 'color: #FF9800; font-weight: bold; font-size: 14px;');
+    console.log('%c• 7 frames per scan (vs 5 desktop)', 'color: #FF9800;');
+    console.log('%c• 300ms scan interval (vs 600ms desktop)', 'color: #FF9800;');
+    console.log('%c• 50ms frame delay (vs 250ms desktop)', 'color: #FF9800;');
+    console.log('%c• 1920x1080 video (Full HD)', 'color: #FF9800;');
+    console.log('%c• 960x720 face recognition (vs 640x480 desktop)', 'color: #FF9800;');
+    console.log('%c• 1920x1080 ORB matching (vs 1280x720 desktop)', 'color: #FF9800;');
+    console.log('%c• 1000 ORB keypoints (vs 500 desktop)', 'color: #FF9800;');
+    console.log('%c• Aggressive face detection (0.4 confidence)', 'color: #FF9800;');
+    console.log('%c• WebGL GPU acceleration enabled', 'color: #FF9800;');
+}
+
 let cv = null;
 let stream = null;
 let referenceData = [];
@@ -21,11 +35,11 @@ let scanningActive = false;
 let scanHistory = []; // Sliding window of recent scan attempts
 const AUTO_SCAN_CONFIG = {
     ENABLED: true,
-    SCAN_INTERVAL: isMobile ? 800 : 600,    // Slower interval on mobile for battery
+    SCAN_INTERVAL: isMobile ? 300 : 600,    // Aggressive scanning on mobile (GPU-accelerated)
     HISTORY_SIZE: 3,                        // Remember last 3 attempts
     REQUIRE_CONSISTENCY: true,              // Require same president in 2/3 attempts
-    NUM_FRAMES: isMobile ? 3 : 5,           // Fewer frames on mobile (3 vs 5)
-    FRAME_DELAY: 250                        // ms between frames
+    NUM_FRAMES: isMobile ? 7 : 5,           // More frames on mobile for better accuracy
+    FRAME_DELAY: isMobile ? 50 : 250        // Fast frame capture on mobile (GPU handles it)
 };
 
 // ============================================================================
@@ -82,32 +96,50 @@ const DiagnosticLogger = {
             return false;
         }
 
+        const payload = JSON.stringify({
+            app: 'artscan',
+            sessionId: this.sessionId,
+            deviceInfo: {
+                userAgent: navigator.userAgent,
+                isMobile: isMobile,
+                screen: {
+                    width: window.screen.width,
+                    height: window.screen.height,
+                    devicePixelRatio: window.devicePixelRatio
+                }
+            },
+            logs: this.logs,
+            totalLogs: this.logs.length,
+            uploadedAt: new Date().toISOString()
+        });
+
         try {
             console.log(`[Diagnostic] Sending ${this.logs.length} logs to remote...`);
 
+            // Use sendBeacon for reliability on mobile (works even if page closes)
+            if (navigator.sendBeacon) {
+                const blob = new Blob([payload], { type: 'application/json' });
+                const sent = navigator.sendBeacon(this.remoteEndpoint, blob);
+
+                if (sent) {
+                    console.log('[Diagnostic] ✓ Logs queued for upload (sendBeacon)');
+                    this.hasUploaded = true;
+                    return true;
+                } else {
+                    console.warn('[Diagnostic] sendBeacon failed, falling back to fetch');
+                }
+            }
+
+            // Fallback to fetch if sendBeacon unavailable or failed
             const response = await fetch(this.remoteEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    app: 'artscan',
-                    sessionId: this.sessionId,
-                    deviceInfo: {
-                        userAgent: navigator.userAgent,
-                        isMobile: isMobile,
-                        screen: {
-                            width: window.screen.width,
-                            height: window.screen.height,
-                            devicePixelRatio: window.devicePixelRatio
-                        }
-                    },
-                    logs: this.logs,
-                    totalLogs: this.logs.length,
-                    uploadedAt: new Date().toISOString()
-                })
+                body: payload,
+                keepalive: true  // Keep request alive even if page navigates
             });
 
             if (response.ok) {
-                console.log('[Diagnostic] ✓ Logs uploaded successfully');
+                console.log('[Diagnostic] ✓ Logs uploaded successfully (fetch)');
                 this.hasUploaded = true;
                 return true;
             } else {
@@ -204,14 +236,19 @@ function logPerformance(label, startTime) {
 }
 
 // Smart image downscaling for optimal recognition performance
-// Reduces pixel count dramatically on mobile (4K → 640p = 10x fewer pixels)
+// Mobile: Higher resolution for better accuracy (GPU-accelerated)
+// Desktop: Conservative resolution for broader compatibility
 function resizeForRecognition(sourceCanvas, layer = 1) {
     const startTime = Date.now();
 
-    // Layer 1 (face-api.js): 640x480 max (optimal for face detection models)
-    // Layer 2 (ORB): 1280x720 max (needs more detail for feature matching)
-    const maxWidth = layer === 1 ? 640 : 1280;
-    const maxHeight = layer === 1 ? 480 : 720;
+    // Layer 1 (face-api.js): Mobile uses higher res (960x720), Desktop conservative (640x480)
+    // Layer 2 (ORB): Mobile uses Full HD (1920x1080), Desktop standard (1280x720)
+    const maxWidth = layer === 1
+        ? (isMobile ? 960 : 640)    // Layer 1: 2.25x more pixels on mobile
+        : (isMobile ? 1920 : 1280); // Layer 2: Full HD on mobile
+    const maxHeight = layer === 1
+        ? (isMobile ? 720 : 480)
+        : (isMobile ? 1080 : 720);
 
     const width = sourceCanvas.width;
     const height = sourceCanvas.height;
@@ -453,7 +490,10 @@ function extractORBFeatures(img) {
         const gray = new cv.Mat();
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-        const orb = new cv.ORB(500);
+        // Mobile: 1000 keypoints for maximum accuracy (2x features)
+        // Desktop: 500 keypoints for compatibility
+        const orbFeatures = isMobile ? 1000 : 500;
+        const orb = new cv.ORB(orbFeatures);
         const keypoints = new cv.KeyPointVector();
         const descriptors = new cv.Mat();
 
@@ -618,9 +658,16 @@ async function recognizePresident(canvas) {
 // Layer 1: Face Recognition using FaceMatcher
 async function tryFaceRecognition(canvas) {
     try {
+        // Mobile: Lower confidence threshold for faster detection at angles
+        // Desktop: Default threshold for accuracy
+        const options = new faceapi.SsdMobilenetv1Options({
+            minConfidence: isMobile ? 0.4 : 0.5,  // More aggressive on mobile
+            maxResults: 1                          // Only need one face
+        });
+
         // Detect face and extract descriptor
         const detection = await faceapi
-            .detectSingleFace(canvas)
+            .detectSingleFace(canvas, options)
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -707,8 +754,8 @@ async function requestCameraAccess() {
         let constraints = {
             video: {
                 facingMode: { ideal: "environment" },
-                width: { ideal: isMobile ? 1280 : 1920 },
-                height: { ideal: isMobile ? 720 : 1080 },
+                width: { ideal: 1920 },     // Full HD on all devices (GPU-accelerated)
+                height: { ideal: 1080 },
             },
             audio: false,
         };
