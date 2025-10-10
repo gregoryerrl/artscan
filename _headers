@@ -3,3 +3,22 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=*, geolocation=(), microphone=()
+
+# Enable compression and caching for better performance
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.json
+  Cache-Control: public, max-age=31536000, immutable
+
+# Face-API models (12MB total) - aggressive caching
+/lib/face-api/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# OpenCV.js (8.2MB) - aggressive caching
+/lib/opencv.js
+  Cache-Control: public, max-age=31536000, immutable
+
+# HTML files - shorter cache for updates
+/*.html
+  Cache-Control: public, max-age=3600

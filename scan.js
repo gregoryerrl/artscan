@@ -1,5 +1,10 @@
 // Artwork Scanner - Mobile Full-Screen Version
 // Uses 2-layer recognition: face-api.js (primary) + OpenCV.js ORB (fallback)
+// Optimized with WebGL backend for GPU acceleration
+
+// Detect mobile device for adaptive configuration
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+console.log('[Device] Mobile detected:', isMobile);
 
 let cv = null;
 let stream = null;
@@ -11,17 +16,68 @@ let faceApiReady = false;
 let faceMatcher = null;
 let faceEmbeddingsData = null;
 
-// Auto-scan state
+// Auto-scan state (mobile-adaptive)
 let scanningActive = false;
 let scanHistory = []; // Sliding window of recent scan attempts
 const AUTO_SCAN_CONFIG = {
     ENABLED: true,
-    SCAN_INTERVAL: 600, // ms between scans
-    HISTORY_SIZE: 3, // Remember last 3 attempts
-    REQUIRE_CONSISTENCY: true, // Require same president in 2/3 attempts
-    NUM_FRAMES: 5, // Frames per scan attempt
-    FRAME_DELAY: 250 // ms between frames
+    SCAN_INTERVAL: isMobile ? 800 : 600,    // Slower interval on mobile for battery
+    HISTORY_SIZE: 3,                        // Remember last 3 attempts
+    REQUIRE_CONSISTENCY: true,              // Require same president in 2/3 attempts
+    NUM_FRAMES: isMobile ? 3 : 5,           // Fewer frames on mobile (3 vs 5)
+    FRAME_DELAY: 250                        // ms between frames
 };
+
+// Performance monitoring helper
+function logPerformance(label, startTime) {
+    const duration = Date.now() - startTime;
+    if (duration > 100) {
+        console.log(`[Perf] ${label}: ${duration}ms`);
+    }
+    return duration;
+}
+
+// Smart image downscaling for optimal recognition performance
+// Reduces pixel count dramatically on mobile (4K → 640p = 10x fewer pixels)
+function resizeForRecognition(sourceCanvas, layer = 1) {
+    const startTime = Date.now();
+
+    // Layer 1 (face-api.js): 640x480 max (optimal for face detection models)
+    // Layer 2 (ORB): 1280x720 max (needs more detail for feature matching)
+    const maxWidth = layer === 1 ? 640 : 1280;
+    const maxHeight = layer === 1 ? 480 : 720;
+
+    const width = sourceCanvas.width;
+    const height = sourceCanvas.height;
+
+    // If already small enough, return original
+    if (width <= maxWidth && height <= maxHeight) {
+        console.log(`[Resize] Layer ${layer}: ${width}x${height} (no resize needed)`);
+        return sourceCanvas;
+    }
+
+    // Calculate scale to fit within max dimensions (preserve aspect ratio)
+    const scale = Math.min(maxWidth / width, maxHeight / height);
+    const newWidth = Math.floor(width * scale);
+    const newHeight = Math.floor(height * scale);
+
+    // Create downscaled canvas
+    const resizedCanvas = document.createElement('canvas');
+    resizedCanvas.width = newWidth;
+    resizedCanvas.height = newHeight;
+    const ctx = resizedCanvas.getContext('2d', { alpha: false }); // No alpha for performance
+
+    // Use high-quality downscaling
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(sourceCanvas, 0, 0, newWidth, newHeight);
+
+    const pixelReduction = Math.round(((width * height) / (newWidth * newHeight)) * 10) / 10;
+    console.log(`[Resize] Layer ${layer}: ${width}x${height} → ${newWidth}x${newHeight} (${pixelReduction}x fewer pixels)`);
+    logPerformance(`Resize (Layer ${layer})`, startTime);
+
+    return resizedCanvas;
+}
 
 // Wait for OpenCV.js to load
 function onOpenCvReady() {
@@ -54,6 +110,39 @@ function onOpenCvReady() {
 // Load face-api.js models and embeddings
 async function loadFaceApi() {
     try {
+        // Wait for face-api.js to load (handles script loading race condition)
+        if (typeof faceapi === 'undefined') {
+            console.log('[Face API] Waiting for face-api.js to load...');
+            await new Promise((resolve) => {
+                const checkInterval = setInterval(() => {
+                    if (typeof faceapi !== 'undefined') {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100); // Check every 100ms
+
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    resolve();
+                }, 10000);
+            });
+
+            // Final check after waiting
+            if (typeof faceapi === 'undefined') {
+                throw new Error('face-api.js failed to load after 10 seconds');
+            }
+        }
+
+        console.log('[Face API] Initializing WebGL backend...');
+
+        // Enable WebGL backend for GPU acceleration (10-100x faster than CPU)
+        await faceapi.tf.setBackend('webgl');
+        await faceapi.tf.ready();
+
+        const backend = faceapi.tf.getBackend();
+        console.log(`[Face API] ✓ Backend: ${backend}` + (backend === 'webgl' ? ' (GPU-accelerated)' : ' (fallback)'));
+
         console.log('[Face API] Loading models...');
 
         // Load the 3 required models
@@ -239,14 +328,22 @@ function matchImage(capturedDescriptors) {
 
 // Main recognition function: Try face-api.js first, fallback to ORB
 async function recognizePresident(canvas) {
+    const overallStart = Date.now();
     let result = null;
 
-    // LAYER 1: Try face recognition first (PRIMARY)
+    // LAYER 1: Try face recognition first (PRIMARY - GPU accelerated)
     if (faceApiReady && faceMatcher) {
+        const layer1Start = Date.now();
         console.log('[Layer 1] Attempting face recognition...');
-        result = await tryFaceRecognition(canvas);
+
+        // Downscale to 640x480 for optimal face detection performance
+        const resizedCanvas = resizeForRecognition(canvas, 1);
+        result = await tryFaceRecognition(resizedCanvas);
+
+        logPerformance('Layer 1 (Face Recognition)', layer1Start);
 
         if (result && result.match !== 'unknown') {
+            logPerformance('Total Recognition (Layer 1 success)', overallStart);
             console.log(`[Layer 1] ✓ Match: ${result.name} (distance: ${result.distance.toFixed(3)})`);
             return {
                 name: result.name,
@@ -262,10 +359,17 @@ async function recognizePresident(canvas) {
     }
 
     // LAYER 2: Fallback to ORB matching
+    const layer2Start = Date.now();
     console.log('[Layer 2] Attempting ORB matching...');
-    result = tryORBMatching(canvas);
+
+    // Downscale to 1280x720 for ORB (needs more detail than face recognition)
+    const resizedCanvas = resizeForRecognition(canvas, 2);
+    result = tryORBMatching(resizedCanvas);
+
+    logPerformance('Layer 2 (ORB Matching)', layer2Start);
 
     if (result && result.matches >= 20) {
+        logPerformance('Total Recognition (Layer 2 success)', overallStart);
         console.log(`[Layer 2] ✓ Match: ${result.name} (matches: ${result.matches})`);
         return {
             ...result,
@@ -273,6 +377,7 @@ async function recognizePresident(canvas) {
         };
     }
 
+    logPerformance('Total Recognition (no match)', overallStart);
     console.log('[Layer 2] No match found');
     return null;
 }
@@ -364,15 +469,18 @@ async function requestCameraAccess() {
 
         const video = document.getElementById("camera");
 
-        // Try different video constraints for better mobile compatibility
+        // Mobile-adaptive video constraints (lower resolution on mobile for performance)
+        // Desktop: 1920x1080, Mobile: 1280x720 (downscaled further during recognition)
         let constraints = {
             video: {
                 facingMode: { ideal: "environment" },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
+                width: { ideal: isMobile ? 1280 : 1920 },
+                height: { ideal: isMobile ? 720 : 1080 },
             },
             audio: false,
         };
+
+        console.log(`[Camera] Requesting ${constraints.video.width.ideal}x${constraints.video.height.ideal} (${isMobile ? 'mobile' : 'desktop'} mode)`);
 
         try {
             stream = await navigator.mediaDevices.getUserMedia(constraints);
