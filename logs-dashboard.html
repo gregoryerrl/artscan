@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArtScan - Diagnostic Logs Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f0f0f;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            grid-column: 1 / -1;
+            background: #1a1a1a;
+            padding: 15px 20px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 60px;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.disconnected {
+            background: #f44336;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #1976D2;
+        }
+
+        .btn.danger {
+            background: #f44336;
+        }
+
+        .btn.danger:hover {
+            background: #d32f2f;
+        }
+
+        .btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        /* Sessions Sidebar */
+        .sessions-sidebar {
+            background: #1a1a1a;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 60px);
+        }
+
+        .sidebar-header {
+            padding: 15px;
+            border-bottom: 1px solid #333;
+        }
+
+        .sidebar-header h2 {
+            font-size: 14px;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .sessions-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .session-card {
+            background: #242424;
+            border: 2px solid transparent;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .session-card:hover {
+            background: #2a2a2a;
+            border-color: #2196F3;
+        }
+
+        .session-card.active {
+            background: #1e3a5f;
+            border-color: #2196F3;
+        }
+
+        .session-id {
+            font-size: 12px;
+            color: #2196F3;
+            font-family: monospace;
+            margin-bottom: 6px;
+        }
+
+        .session-info {
+            font-size: 11px;
+            color: #999;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .session-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .session-badge.mobile {
+            background: #FF9800;
+            color: #000;
+        }
+
+        .session-badge.desktop {
+            background: #4CAF50;
+            color: #000;
+        }
+
+        /* Logs Panel */
+        .logs-panel {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 60px);
+        }
+
+        .filters-bar {
+            background: #1a1a1a;
+            padding: 12px 15px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .filter-label {
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        select, input[type="search"] {
+            background: #242424;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
+        input[type="search"] {
+            width: 200px;
+        }
+
+        .logs-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .log-entry {
+            background: #1e1e1e;
+            border-left: 3px solid #666;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .log-entry.session_start { border-left-color: #9C27B0; }
+        .log-entry.backend_initialized { border-left-color: #2196F3; }
+        .log-entry.models_loaded { border-left-color: #03A9F4; }
+        .log-entry.frame_recognition_start { border-left-color: #00BCD4; }
+        .log-entry.layer1_attempt { border-left-color: #009688; }
+        .log-entry.layer2_attempt { border-left-color: #4CAF50; }
+        .log-entry.recognition_success { border-left-color: #8BC34A; }
+        .log-entry.recognition_failure { border-left-color: #FF9800; }
+        .log-entry.scan_attempt_start { border-left-color: #FF5722; }
+        .log-entry.scan_attempt_complete { border-left-color: #F44336; }
+        .log-entry.confidence_check { border-left-color: #E91E63; }
+        .log-entry.scan_success { border-left-color: #4CAF50; }
+        .log-entry.performance_warning { border-left-color: #FFC107; background: #2a2200; }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+
+        .log-event {
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .log-timestamp {
+            color: #666;
+            font-size: 11px;
+        }
+
+        .log-data {
+            color: #aaa;
+            margin-top: 6px;
+            padding-left: 10px;
+            border-left: 1px solid #333;
+        }
+
+        .log-data-item {
+            margin: 2px 0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state h3 {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .stats-bar {
+            background: #1a1a1a;
+            border-top: 1px solid #333;
+            padding: 10px 15px;
+            font-size: 12px;
+            color: #aaa;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            .sessions-sidebar {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>
+                <span class="status-indicator" id="statusIndicator"></span>
+                ArtScan Diagnostic Logs
+            </h1>
+            <div class="header-controls">
+                <button class="btn" onclick="exportLogs()">Export Logs</button>
+                <button class="btn danger" onclick="clearAllLogs()">Clear All</button>
+                <label style="display: flex; align-items: center; gap: 5px; color: #aaa; font-size: 13px;">
+                    <input type="checkbox" id="autoScroll" checked>
+                    Auto-scroll
+                </label>
+            </div>
+        </div>
+
+        <!-- Sessions Sidebar -->
+        <div class="sessions-sidebar">
+            <div class="sidebar-header">
+                <h2>Active Sessions (<span id="sessionCount">0</span>)</h2>
+            </div>
+            <div class="sessions-list" id="sessionsList">
+                <!-- Sessions will be populated here -->
+            </div>
+        </div>
+
+        <!-- Logs Panel -->
+        <div class="logs-panel">
+            <div class="filters-bar">
+                <div class="filter-group">
+                    <span class="filter-label">Event Type:</span>
+                    <select id="eventFilter" onchange="applyFilters()">
+                        <option value="">All Events</option>
+                        <option value="session_start">Session Start</option>
+                        <option value="backend_initialized">Backend Initialized</option>
+                        <option value="models_loaded">Models Loaded</option>
+                        <option value="frame_recognition_start">Frame Recognition Start</option>
+                        <option value="layer1_attempt">Layer 1 Attempt</option>
+                        <option value="layer2_attempt">Layer 2 Attempt</option>
+                        <option value="recognition_success">Recognition Success</option>
+                        <option value="recognition_failure">Recognition Failure</option>
+                        <option value="scan_attempt_start">Scan Attempt Start</option>
+                        <option value="scan_attempt_complete">Scan Attempt Complete</option>
+                        <option value="confidence_check">Confidence Check</option>
+                        <option value="scan_success">Scan Success</option>
+                        <option value="performance_warning">Performance Warning</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <input type="search" id="searchInput" placeholder="Search logs..." oninput="applyFilters()">
+                </div>
+            </div>
+
+            <div class="logs-content" id="logsContent">
+                <div class="empty-state">
+                    <h3>Waiting for logs...</h3>
+                    <p>No client sessions detected yet.</p>
+                    <p style="margin-top: 10px; color: #888; font-size: 12px;">
+                        Open the scanner at <a href="/" style="color: #2196F3;">http://localhost:8000/scan.html</a>
+                    </p>
+                </div>
+            </div>
+
+            <div class="stats-bar">
+                <span>Total Logs: <strong id="totalLogs">0</strong></span>
+                <span>Filtered: <strong id="filteredLogs">0</strong></span>
+                <span>Sessions: <strong id="statsSessionCount">0</strong></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let allLogs = [];
+        let allSessions = [];
+        let selectedSession = null;
+        let eventSource = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            connectSSE();
+            loadSessions();
+            loadLogs();
+
+            // Refresh sessions every 5 seconds
+            setInterval(loadSessions, 5000);
+        });
+
+        // Connect to Server-Sent Events stream
+        function connectSSE() {
+            const statusIndicator = document.getElementById('statusIndicator');
+
+            eventSource = new EventSource('/api/logs/stream');
+
+            eventSource.onopen = () => {
+                console.log('[Dashboard] SSE Connected');
+                statusIndicator.classList.remove('disconnected');
+            };
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'connected' || data.type === 'heartbeat') {
+                        return;
+                    }
+
+                    // Add new log
+                    allLogs.unshift(data);
+
+                    // Refresh sessions if new session
+                    if (data.event === 'session_start') {
+                        loadSessions();
+                    }
+
+                    // Re-render
+                    renderLogs();
+                } catch (error) {
+                    console.error('[Dashboard] Error parsing SSE message:', error);
+                }
+            };
+
+            eventSource.onerror = (error) => {
+                console.error('[Dashboard] SSE Error:', error);
+                statusIndicator.classList.add('disconnected');
+
+                // Attempt to reconnect after 3 seconds
+                setTimeout(() => {
+                    console.log('[Dashboard] Attempting to reconnect...');
+                    eventSource.close();
+                    connectSSE();
+                }, 3000);
+            };
+        }
+
+        // Load sessions from API
+        async function loadSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+
+                allSessions = data.sessions;
+                renderSessions();
+            } catch (error) {
+                console.error('[Dashboard] Error loading sessions:', error);
+            }
+        }
+
+        // Load logs from API
+        async function loadLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+
+                allLogs = data.logs;
+                renderLogs();
+            } catch (error) {
+                console.error('[Dashboard] Error loading logs:', error);
+            }
+        }
+
+        // Render sessions list
+        function renderSessions() {
+            const sessionsList = document.getElementById('sessionsList');
+            const sessionCount = document.getElementById('sessionCount');
+            const statsSessionCount = document.getElementById('statsSessionCount');
+
+            sessionCount.textContent = allSessions.length;
+            statsSessionCount.textContent = allSessions.length;
+
+            if (allSessions.length === 0) {
+                sessionsList.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No active sessions</div>';
+                return;
+            }
+
+            sessionsList.innerHTML = allSessions.map(session => {
+                const isActive = selectedSession === session.sessionId;
+                const deviceBadge = session.metadata.isMobile
+                    ? '<span class="session-badge mobile">Mobile</span>'
+                    : '<span class="session-badge desktop">Desktop</span>';
+
+                const duration = Math.round((Date.now() - session.stats.startTime) / 1000);
+                const durationStr = duration > 60 ? `${Math.floor(duration / 60)}m ${duration % 60}s` : `${duration}s`;
+
+                return `
+                    <div class="session-card ${isActive ? 'active' : ''}" onclick="selectSession('${session.sessionId}')">
+                        <div class="session-id">${session.sessionId}</div>
+                        <div class="session-info">
+                            <div>${deviceBadge} ${session.stats.totalEvents} events</div>
+                            <div>Duration: ${durationStr}</div>
+                            <div>Logs: ${session.logCount}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Select a session
+        function selectSession(sessionId) {
+            if (selectedSession === sessionId) {
+                selectedSession = null;
+            } else {
+                selectedSession = sessionId;
+            }
+            renderSessions();
+            applyFilters();
+        }
+
+        // Render logs
+        function renderLogs() {
+            const logsContent = document.getElementById('logsContent');
+            const totalLogs = document.getElementById('totalLogs');
+
+            totalLogs.textContent = allLogs.length;
+
+            const filteredLogs = getFilteredLogs();
+
+            if (filteredLogs.length === 0) {
+                logsContent.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No logs found</h3>
+                        <p>Try adjusting your filters or wait for new logs to arrive.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            logsContent.innerHTML = filteredLogs.map(log => {
+                const timestamp = new Date(log.timestamp).toLocaleTimeString();
+                const dataItems = Object.entries(log)
+                    .filter(([key]) => !['event', 'timestamp', 'sessionId'].includes(key))
+                    .map(([key, value]) => {
+                        const displayValue = typeof value === 'object'
+                            ? JSON.stringify(value, null, 2)
+                            : String(value);
+                        return `<div class="log-data-item"><strong>${key}:</strong> ${displayValue}</div>`;
+                    })
+                    .join('');
+
+                return `
+                    <div class="log-entry ${log.event}">
+                        <div class="log-header">
+                            <span class="log-event">${log.event}</span>
+                            <span class="log-timestamp">${timestamp}</span>
+                        </div>
+                        ${dataItems ? `<div class="log-data">${dataItems}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            // Auto-scroll if enabled
+            if (document.getElementById('autoScroll').checked) {
+                logsContent.scrollTop = 0;
+            }
+        }
+
+        // Get filtered logs
+        function getFilteredLogs() {
+            const eventFilter = document.getElementById('eventFilter').value;
+            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+
+            let filtered = allLogs;
+
+            // Filter by selected session
+            if (selectedSession) {
+                filtered = filtered.filter(log => log.sessionId === selectedSession);
+            }
+
+            // Filter by event type
+            if (eventFilter) {
+                filtered = filtered.filter(log => log.event === eventFilter);
+            }
+
+            // Filter by search
+            if (searchInput) {
+                filtered = filtered.filter(log => {
+                    return JSON.stringify(log).toLowerCase().includes(searchInput);
+                });
+            }
+
+            document.getElementById('filteredLogs').textContent = filtered.length;
+            return filtered;
+        }
+
+        // Apply filters
+        function applyFilters() {
+            renderLogs();
+        }
+
+        // Export logs
+        async function exportLogs() {
+            try {
+                const sessionParam = selectedSession ? `?sessionId=${selectedSession}` : '';
+                const response = await fetch(`/api/logs${sessionParam}`);
+                const data = await response.json();
+
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `artscan-logs-${selectedSession || 'all'}-${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                console.log('[Dashboard] Logs exported');
+            } catch (error) {
+                console.error('[Dashboard] Error exporting logs:', error);
+                alert('Failed to export logs');
+            }
+        }
+
+        // Clear all logs
+        async function clearAllLogs() {
+            if (!confirm('Are you sure you want to clear all logs? This cannot be undone.')) {
+                return;
+            }
+
+            try {
+                await fetch('/api/logs', { method: 'DELETE' });
+                allLogs = [];
+                selectedSession = null;
+                loadSessions();
+                renderLogs();
+                console.log('[Dashboard] All logs cleared');
+            } catch (error) {
+                console.error('[Dashboard] Error clearing logs:', error);
+                alert('Failed to clear logs');
+            }
+        }
+    </script>
+</body>
+</html>

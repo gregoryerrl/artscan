@@ -28,12 +28,148 @@ const AUTO_SCAN_CONFIG = {
     FRAME_DELAY: 250                        // ms between frames
 };
 
-// Performance monitoring helper
+// ============================================================================
+// DIAGNOSTIC LOGGING SYSTEM
+// ============================================================================
+
+// Centralized logging system for debugging mobile performance issues
+const DiagnosticLogger = {
+    logs: [],
+    sessionId: Date.now().toString(36) + Math.random().toString(36).substr(2),
+    remoteEndpoint: '/api/logs', // Server-side logging enabled
+
+    // Initialize with device info
+    init() {
+        this.log('session_start', {
+            sessionId: this.sessionId,
+            userAgent: navigator.userAgent,
+            isMobile: isMobile,
+            screen: {
+                width: window.screen.width,
+                height: window.screen.height,
+                devicePixelRatio: window.devicePixelRatio
+            },
+            timestamp: new Date().toISOString()
+        });
+    },
+
+    // Log an event with timing and metadata
+    log(event, data = {}) {
+        const entry = {
+            timestamp: Date.now(),
+            event: event,
+            ...data
+        };
+
+        this.logs.push(entry);
+
+        // Console output for debugging
+        console.log(`[Diagnostic] ${event}:`, data);
+
+        // Send to remote endpoint if configured
+        if (this.remoteEndpoint) {
+            this.sendToRemote(entry);
+        }
+
+        // Keep only last 100 entries to prevent memory issues
+        if (this.logs.length > 100) {
+            this.logs.shift();
+        }
+    },
+
+    // Send log to remote endpoint
+    async sendToRemote(entry) {
+        try {
+            await fetch(this.remoteEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: this.sessionId,
+                    ...entry
+                })
+            });
+        } catch (error) {
+            console.warn('[Diagnostic] Failed to send log to remote:', error);
+        }
+    },
+
+    // Export logs as JSON for download
+    exportLogs() {
+        const data = {
+            sessionId: this.sessionId,
+            exportTime: new Date().toISOString(),
+            deviceInfo: {
+                userAgent: navigator.userAgent,
+                isMobile: isMobile,
+                screen: {
+                    width: window.screen.width,
+                    height: window.screen.height,
+                    devicePixelRatio: window.devicePixelRatio
+                }
+            },
+            logs: this.logs
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `artscan-logs-${this.sessionId}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        console.log('[Diagnostic] Logs exported');
+    },
+
+    // Get performance summary
+    getSummary() {
+        const attempts = this.logs.filter(l => l.event === 'scan_attempt');
+        const successes = this.logs.filter(l => l.event === 'scan_success');
+        const failures = this.logs.filter(l => l.event === 'scan_failure');
+
+        const avgFrameTime = attempts.length > 0
+            ? attempts.reduce((sum, a) => sum + (a.duration || 0), 0) / attempts.length
+            : 0;
+
+        return {
+            totalAttempts: attempts.length,
+            successes: successes.length,
+            failures: failures.length,
+            avgFrameTime: Math.round(avgFrameTime),
+            logs: this.logs
+        };
+    }
+};
+
+// Initialize diagnostic logger
+DiagnosticLogger.init();
+
+// Expose globally for manual export via console
+window.exportDiagnosticLogs = () => DiagnosticLogger.exportLogs();
+window.getDiagnosticSummary = () => DiagnosticLogger.getSummary();
+
+// Log usage instructions
+console.log('%c📊 Diagnostic Logging Active', 'color: #2196F3; font-weight: bold; font-size: 14px;');
+console.log('%cExport logs: exportDiagnosticLogs()', 'color: #666;');
+console.log('%cView summary: getDiagnosticSummary()', 'color: #666;');
+console.log('%cSession ID: ' + DiagnosticLogger.sessionId, 'color: #666;');
+
+// Performance monitoring helper (enhanced with diagnostic logging)
 function logPerformance(label, startTime) {
     const duration = Date.now() - startTime;
     if (duration > 100) {
         console.log(`[Perf] ${label}: ${duration}ms`);
     }
+
+    // Log to diagnostic system if over threshold
+    if (duration > 500) {
+        DiagnosticLogger.log('performance_warning', {
+            label: label,
+            duration: duration,
+            threshold: 500
+        });
+    }
+
     return duration;
 }
 
@@ -136,21 +272,40 @@ async function loadFaceApi() {
 
         console.log('[Face API] Initializing WebGL backend...');
 
+        const backendStartTime = Date.now();
+
         // Enable WebGL backend for GPU acceleration (10-100x faster than CPU)
         await faceapi.tf.setBackend('webgl');
         await faceapi.tf.ready();
 
         const backend = faceapi.tf.getBackend();
+        const backendInitTime = Date.now() - backendStartTime;
+
         console.log(`[Face API] ✓ Backend: ${backend}` + (backend === 'webgl' ? ' (GPU-accelerated)' : ' (fallback)'));
 
+        // Log backend initialization
+        DiagnosticLogger.log('backend_initialized', {
+            backend: backend,
+            initTime: backendInitTime,
+            isWebGL: backend === 'webgl',
+            isGPUAccelerated: backend === 'webgl'
+        });
+
         console.log('[Face API] Loading models...');
+        const modelStartTime = Date.now();
 
         // Load the 3 required models
         await faceapi.nets.ssdMobilenetv1.loadFromUri('lib/face-api');
         await faceapi.nets.faceLandmark68Net.loadFromUri('lib/face-api');
         await faceapi.nets.faceRecognitionNet.loadFromUri('lib/face-api');
 
+        const modelLoadTime = Date.now() - modelStartTime;
         console.log('[Face API] ✓ Models loaded');
+
+        // Log model loading time
+        DiagnosticLogger.log('models_loaded', {
+            duration: modelLoadTime
+        });
 
         // Load pre-computed embeddings
         const response = await fetch('lib/face-embeddings.json');
@@ -331,6 +486,13 @@ async function recognizePresident(canvas) {
     const overallStart = Date.now();
     let result = null;
 
+    // Log frame details
+    DiagnosticLogger.log('frame_recognition_start', {
+        originalSize: `${canvas.width}x${canvas.height}`,
+        originalPixels: canvas.width * canvas.height,
+        faceApiReady: faceApiReady
+    });
+
     // LAYER 1: Try face recognition first (PRIMARY - GPU accelerated)
     if (faceApiReady && faceMatcher) {
         const layer1Start = Date.now();
@@ -340,10 +502,27 @@ async function recognizePresident(canvas) {
         const resizedCanvas = resizeForRecognition(canvas, 1);
         result = await tryFaceRecognition(resizedCanvas);
 
-        logPerformance('Layer 1 (Face Recognition)', layer1Start);
+        const layer1Duration = logPerformance('Layer 1 (Face Recognition)', layer1Start);
+
+        // Log Layer 1 attempt
+        DiagnosticLogger.log('layer1_attempt', {
+            duration: layer1Duration,
+            resizedSize: `${resizedCanvas.width}x${resizedCanvas.height}`,
+            success: result && result.match !== 'unknown',
+            result: result ? result.match : 'no_face_or_distant'
+        });
 
         if (result && result.match !== 'unknown') {
-            logPerformance('Total Recognition (Layer 1 success)', overallStart);
+            const totalDuration = logPerformance('Total Recognition (Layer 1 success)', overallStart);
+
+            DiagnosticLogger.log('recognition_success', {
+                layer: 1,
+                method: 'face-recognition',
+                president: result.name,
+                distance: result.distance,
+                totalDuration: totalDuration
+            });
+
             console.log(`[Layer 1] ✓ Match: ${result.name} (distance: ${result.distance.toFixed(3)})`);
             return {
                 name: result.name,
@@ -366,10 +545,27 @@ async function recognizePresident(canvas) {
     const resizedCanvas = resizeForRecognition(canvas, 2);
     result = tryORBMatching(resizedCanvas);
 
-    logPerformance('Layer 2 (ORB Matching)', layer2Start);
+    const layer2Duration = logPerformance('Layer 2 (ORB Matching)', layer2Start);
+
+    // Log Layer 2 attempt
+    DiagnosticLogger.log('layer2_attempt', {
+        duration: layer2Duration,
+        resizedSize: `${resizedCanvas.width}x${resizedCanvas.height}`,
+        matches: result ? result.matches : 0,
+        success: result && result.matches >= 20
+    });
 
     if (result && result.matches >= 20) {
-        logPerformance('Total Recognition (Layer 2 success)', overallStart);
+        const totalDuration = logPerformance('Total Recognition (Layer 2 success)', overallStart);
+
+        DiagnosticLogger.log('recognition_success', {
+            layer: 2,
+            method: 'orb-matching',
+            president: result.name,
+            matches: result.matches,
+            totalDuration: totalDuration
+        });
+
         console.log(`[Layer 2] ✓ Match: ${result.name} (matches: ${result.matches})`);
         return {
             ...result,
@@ -377,7 +573,14 @@ async function recognizePresident(canvas) {
         };
     }
 
-    logPerformance('Total Recognition (no match)', overallStart);
+    const totalDuration = logPerformance('Total Recognition (no match)', overallStart);
+
+    DiagnosticLogger.log('recognition_failure', {
+        totalDuration: totalDuration,
+        layer1Attempted: faceApiReady && faceMatcher,
+        layer2Matches: result ? result.matches : 0
+    });
+
     console.log('[Layer 2] No match found');
     return null;
 }
@@ -615,9 +818,21 @@ async function startContinuousScanning() {
     const video = document.getElementById("camera");
     const canvas = document.getElementById("capture-canvas");
 
+    let attemptCount = 0;
+
     while (scanningActive) {
         try {
+            attemptCount++;
+            const attemptStartTime = Date.now();
+
             updateStatus("🔍 Scanning... Hold steady on portrait", "loading");
+
+            // Log scan attempt start
+            DiagnosticLogger.log('scan_attempt_start', {
+                attemptNumber: attemptCount,
+                numFrames: AUTO_SCAN_CONFIG.NUM_FRAMES,
+                scanHistorySize: scanHistory.length
+            });
 
             const frameResults = [];
 
@@ -650,6 +865,22 @@ async function startContinuousScanning() {
             // Aggregate results for this attempt
             const aggregatedResult = aggregateFrameResults(frameResults);
 
+            const attemptDuration = Date.now() - attemptStartTime;
+
+            // Log scan attempt result
+            DiagnosticLogger.log('scan_attempt_complete', {
+                attemptNumber: attemptCount,
+                duration: attemptDuration,
+                framesProcessed: AUTO_SCAN_CONFIG.NUM_FRAMES,
+                framesWithResults: frameResults.length,
+                aggregatedResult: aggregatedResult ? {
+                    name: aggregatedResult.name,
+                    consensus: aggregatedResult.consensus,
+                    voteCount: aggregatedResult.voteCount,
+                    inconclusive: aggregatedResult.inconclusive
+                } : null
+            });
+
             // Add to history (sliding window)
             if (aggregatedResult && !aggregatedResult.inconclusive) {
                 scanHistory.push(aggregatedResult);
@@ -661,8 +892,25 @@ async function startContinuousScanning() {
             // Check if we should display result
             const shouldDisplay = checkForConfidentMatch();
 
+            // Log confidence check
+            DiagnosticLogger.log('confidence_check', {
+                attemptNumber: attemptCount,
+                shouldDisplay: !!shouldDisplay,
+                scanHistorySize: scanHistory.length,
+                result: shouldDisplay ? shouldDisplay.name : null
+            });
+
             if (shouldDisplay) {
                 console.log('✓ Confident match found!', shouldDisplay);
+
+                // Log successful scan
+                DiagnosticLogger.log('scan_success', {
+                    totalAttempts: attemptCount,
+                    president: shouldDisplay.name,
+                    method: shouldDisplay.method,
+                    consensus: shouldDisplay.consensus
+                });
+
                 scanningActive = false;
 
                 // Vibrate success
