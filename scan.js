@@ -36,7 +36,8 @@ const AUTO_SCAN_CONFIG = {
 const DiagnosticLogger = {
     logs: [],
     sessionId: Date.now().toString(36) + Math.random().toString(36).substr(2),
-    remoteEndpoint: '/api/logs', // Server-side logging enabled
+    remoteEndpoint: 'https://greg-logger.gregoryerrl.workers.dev/log', // Cloudflare Workers logging
+    hasUploaded: false, // Track if logs have been uploaded
 
     // Initialize with device info
     init() {
@@ -66,30 +67,56 @@ const DiagnosticLogger = {
         // Console output for debugging
         console.log(`[Diagnostic] ${event}:`, data);
 
-        // Send to remote endpoint if configured
-        if (this.remoteEndpoint) {
-            this.sendToRemote(entry);
-        }
-
-        // Keep only last 100 entries to prevent memory issues
-        if (this.logs.length > 100) {
-            this.logs.shift();
-        }
+        // Note: Logs are collected locally, call sendBatchToRemote() to upload
     },
 
-    // Send log to remote endpoint
-    async sendToRemote(entry) {
+    // Send all logs in one batch POST
+    async sendBatchToRemote() {
+        if (!this.remoteEndpoint) {
+            console.warn('[Diagnostic] No remote endpoint configured');
+            return false;
+        }
+
+        if (this.logs.length === 0) {
+            console.warn('[Diagnostic] No logs to send');
+            return false;
+        }
+
         try {
-            await fetch(this.remoteEndpoint, {
+            console.log(`[Diagnostic] Sending ${this.logs.length} logs to remote...`);
+
+            const response = await fetch(this.remoteEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    app: 'artscan',
                     sessionId: this.sessionId,
-                    ...entry
+                    deviceInfo: {
+                        userAgent: navigator.userAgent,
+                        isMobile: isMobile,
+                        screen: {
+                            width: window.screen.width,
+                            height: window.screen.height,
+                            devicePixelRatio: window.devicePixelRatio
+                        }
+                    },
+                    logs: this.logs,
+                    totalLogs: this.logs.length,
+                    uploadedAt: new Date().toISOString()
                 })
             });
+
+            if (response.ok) {
+                console.log('[Diagnostic] ✓ Logs uploaded successfully');
+                this.hasUploaded = true;
+                return true;
+            } else {
+                console.error('[Diagnostic] Failed to upload logs:', response.status);
+                return false;
+            }
         } catch (error) {
-            console.warn('[Diagnostic] Failed to send log to remote:', error);
+            console.error('[Diagnostic] Failed to send logs to remote:', error);
+            return false;
         }
     },
 
@@ -147,10 +174,13 @@ DiagnosticLogger.init();
 // Expose globally for manual export via console
 window.exportDiagnosticLogs = () => DiagnosticLogger.exportLogs();
 window.getDiagnosticSummary = () => DiagnosticLogger.getSummary();
+window.uploadDiagnosticLogs = () => DiagnosticLogger.sendBatchToRemote();
 
 // Log usage instructions
 console.log('%c📊 Diagnostic Logging Active', 'color: #2196F3; font-weight: bold; font-size: 14px;');
-console.log('%cExport logs: exportDiagnosticLogs()', 'color: #666;');
+console.log('%c✓ Logs will auto-upload after first successful scan', 'color: #4CAF50;');
+console.log('%cManual upload: uploadDiagnosticLogs()', 'color: #666;');
+console.log('%cExport logs locally: exportDiagnosticLogs()', 'color: #666;');
 console.log('%cView summary: getDiagnosticSummary()', 'color: #666;');
 console.log('%cSession ID: ' + DiagnosticLogger.sessionId, 'color: #666;');
 
@@ -910,6 +940,11 @@ async function startContinuousScanning() {
                     method: shouldDisplay.method,
                     consensus: shouldDisplay.consensus
                 });
+
+                // Auto-upload logs after first successful scan
+                if (!DiagnosticLogger.hasUploaded) {
+                    DiagnosticLogger.sendBatchToRemote();
+                }
 
                 scanningActive = false;
 
