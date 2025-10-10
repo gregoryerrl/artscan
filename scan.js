@@ -1119,6 +1119,10 @@ async function startContinuousScanning() {
                     DiagnosticLogger.sendBatchToRemote();
                 }
 
+                // Auto-download diagnostic logs
+                console.log("[Diagnostic] Auto-downloading logs...");
+                DiagnosticLogger.exportLogs();
+
                 scanningActive = false;
 
                 // Vibrate success
@@ -1386,31 +1390,10 @@ function displayResult(match) {
                     <div class="result-stats">
                         ${statsHTML}
                     </div>
-                    <button id="download-debug-logs-btn" class="btn btn-secondary btn-block" style="margin-top: 1rem; font-size: 0.9rem;">
-                        Download Debug Logs
-                    </button>
                 </div>
             </div>
         `;
         updateStatus(`✓ Matched: ${match.name}`, "success");
-
-        // Add event listener for download button
-        setTimeout(() => {
-            const downloadBtn = document.getElementById(
-                "download-debug-logs-btn"
-            );
-            if (downloadBtn) {
-                downloadBtn.addEventListener("click", () => {
-                    DiagnosticLogger.exportLogs();
-                    downloadBtn.textContent = "✓ Downloaded!";
-                    downloadBtn.disabled = true;
-                    setTimeout(() => {
-                        downloadBtn.textContent = "📊 Download Debug Logs";
-                        downloadBtn.disabled = false;
-                    }, 2000);
-                });
-            }
-        }, 0);
     } else {
         // Handle no match (insufficient features)
         const matchCount = match ? match.matches : 0;

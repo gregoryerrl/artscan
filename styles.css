@@ -343,14 +343,6 @@ body {
     margin: 0;
 }
 
-/* Download debug logs button in result modal */
-#download-debug-logs-btn {
-    margin-top: 1rem;
-    width: 100%;
-    grid-column: 1 / -1; /* Span all columns if inside grid */
-    color: blue;
-}
-
 /* Scan Again button - sticky on mobile for easy access */
 #scan-again-btn {
     position: sticky;
