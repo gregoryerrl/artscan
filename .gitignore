@@ -17,7 +17,9 @@ temp-metadata.json
 descriptors(*.json
 images-metadata.json
 
-CLAUDE.md
-
 /train
 SVELTEKIT.md
+
+/docs
+
+CLAUDE.md

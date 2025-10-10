@@ -1,10 +1,15 @@
 // Artwork Scanner - Mobile Full-Screen Version
-// Uses OpenCV.js for ORB feature matching
+// Uses 2-layer recognition: face-api.js (primary) + OpenCV.js ORB (fallback)
 
 let cv = null;
 let stream = null;
 let referenceData = [];
 let artworks = [];
+
+// Face-API state
+let faceApiReady = false;
+let faceMatcher = null;
+let faceEmbeddingsData = null;
 
 // Auto-scan state
 let scanningActive = false;
@@ -23,6 +28,11 @@ function onOpenCvReady() {
     cv = window.cv;
     console.log("OpenCV.js loaded:", cv);
 
+    // Load face-api.js models in parallel
+    loadFaceApi().catch(err => {
+        console.warn('[Face API] Will use ORB-only mode:', err);
+    });
+
     // Check for cached processed data first
     if (window.OpencvCache) {
         const cached = window.OpencvCache.loadProcessedArtworks(cv);
@@ -39,6 +49,43 @@ function onOpenCvReady() {
     // No cache, process normally
     updateStatus("✓ OpenCV.js loaded! Loading artworks...", "info");
     loadArtworks();
+}
+
+// Load face-api.js models and embeddings
+async function loadFaceApi() {
+    try {
+        console.log('[Face API] Loading models...');
+
+        // Load the 3 required models
+        await faceapi.nets.ssdMobilenetv1.loadFromUri('lib/face-api');
+        await faceapi.nets.faceLandmark68Net.loadFromUri('lib/face-api');
+        await faceapi.nets.faceRecognitionNet.loadFromUri('lib/face-api');
+
+        console.log('[Face API] ✓ Models loaded');
+
+        // Load pre-computed embeddings
+        const response = await fetch('lib/face-embeddings.json');
+        faceEmbeddingsData = await response.json();
+
+        // Create labeled descriptors for FaceMatcher
+        const labeledDescriptors = faceEmbeddingsData.embeddings.map(president => {
+            return new faceapi.LabeledFaceDescriptors(
+                president.name,
+                [new Float32Array(president.descriptor)]
+            );
+        });
+
+        // Create FaceMatcher with default threshold (0.6)
+        faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
+
+        faceApiReady = true;
+        console.log(`[Face API] ✓ Ready! ${faceEmbeddingsData.embeddings.length} presidents loaded`);
+        console.log(`[Face API] ${faceEmbeddingsData.outliersCount} outliers will use ORB fallback`);
+
+    } catch (error) {
+        console.error('[Face API] Failed to load:', error);
+        faceApiReady = false;
+    }
 }
 
 // Load pre-computed descriptors from JSON
@@ -186,6 +233,125 @@ function matchImage(capturedDescriptors) {
     return bestMatch;
 }
 
+// ============================================================================
+// 2-LAYER RECOGNITION SYSTEM
+// ============================================================================
+
+// Main recognition function: Try face-api.js first, fallback to ORB
+async function recognizePresident(canvas) {
+    let result = null;
+
+    // LAYER 1: Try face recognition first (PRIMARY)
+    if (faceApiReady && faceMatcher) {
+        console.log('[Layer 1] Attempting face recognition...');
+        result = await tryFaceRecognition(canvas);
+
+        if (result && result.match !== 'unknown') {
+            console.log(`[Layer 1] ✓ Match: ${result.name} (distance: ${result.distance.toFixed(3)})`);
+            return {
+                name: result.name,
+                description: result.description,
+                url: result.url,
+                matches: 100, // Placeholder for compatibility
+                method: 'face-recognition',
+                distance: result.distance,
+                confidence: Math.round((1 - Math.min(result.distance, 1)) * 100)
+            };
+        }
+        console.log('[Layer 1] No face detected or match too distant');
+    }
+
+    // LAYER 2: Fallback to ORB matching
+    console.log('[Layer 2] Attempting ORB matching...');
+    result = tryORBMatching(canvas);
+
+    if (result && result.matches >= 20) {
+        console.log(`[Layer 2] ✓ Match: ${result.name} (matches: ${result.matches})`);
+        return {
+            ...result,
+            method: 'orb-matching'
+        };
+    }
+
+    console.log('[Layer 2] No match found');
+    return null;
+}
+
+// Layer 1: Face Recognition using FaceMatcher
+async function tryFaceRecognition(canvas) {
+    try {
+        // Detect face and extract descriptor
+        const detection = await faceapi
+            .detectSingleFace(canvas)
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+
+        if (!detection) {
+            return null; // No face detected
+        }
+
+        // Use FaceMatcher to find best match
+        const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+
+        // bestMatch.label = president name or "unknown"
+        // bestMatch.distance = Euclidean distance (lower = better)
+        // Default threshold is 0.6
+
+        if (bestMatch.label !== 'unknown') {
+            // Find full president data from embeddings
+            const presidentData = faceEmbeddingsData.embeddings.find(
+                p => p.name === bestMatch.label
+            );
+
+            // Find description from reference data (for full info)
+            const refData = referenceData.find(r => r.name === bestMatch.label);
+
+            return {
+                name: bestMatch.label,
+                description: refData ? refData.description : '',
+                url: presidentData ? presidentData.url : '',
+                distance: bestMatch.distance,
+                match: bestMatch.label
+            };
+        }
+
+        return null;
+
+    } catch (error) {
+        console.error('[Face Recognition] Error:', error);
+        return null;
+    }
+}
+
+// Layer 2: ORB Matching (existing logic, refactored)
+function tryORBMatching(canvas) {
+    try {
+        // Extract ORB features
+        const features = extractORBFeatures(canvas);
+
+        if (!features || !features.descriptors || features.descriptors.rows === 0) {
+            if (features) {
+                features.descriptors?.delete();
+                features.keypoints?.delete();
+            }
+            return null;
+        }
+
+        // Match against reference descriptors
+        const match = matchImage(features.descriptors);
+
+        // Clean up
+        features.descriptors.delete();
+        features.keypoints.delete();
+
+        return match;
+
+    } catch (error) {
+        console.error('[ORB Matching] Error:', error);
+        return null;
+    }
+}
+
 // Request camera access
 async function requestCameraAccess() {
     try {
@@ -295,20 +461,13 @@ async function captureAndIdentify() {
             const ctx = canvas.getContext("2d");
             ctx.drawImage(video, 0, 0);
 
-            // Extract features and match
-            const features = extractORBFeatures(canvas);
-            console.log(`Frame ${i + 1}: Captured ${features.keypoints.size()} keypoints`);
-
-            const match = matchImage(features.descriptors);
-
-            // Clean up
-            features.keypoints.delete();
-            features.descriptors.delete();
+            // Use 2-layer recognition (face-api.js + ORB fallback)
+            const match = await recognizePresident(canvas);
 
             // Store result
             if (match) {
                 frameResults.push(match);
-                console.log(`Frame ${i + 1}: ${match.name} (${match.matches} matches)`);
+                console.log(`Frame ${i + 1}: ${match.name} (${match.method}) - ${match.matches || match.distance?.toFixed(3)} features`);
             }
 
             // Wait before next frame (except on last frame)
@@ -362,22 +521,16 @@ async function startContinuousScanning() {
                 const ctx = canvas.getContext("2d");
                 ctx.drawImage(video, 0, 0);
 
-                // Extract features and match
-                const features = extractORBFeatures(canvas);
-                const keypointCount = features.keypoints.size();
-
                 // Show live feedback
-                updateStatus(`🔍 Analyzing... found ${keypointCount} features (${i + 1}/${AUTO_SCAN_CONFIG.NUM_FRAMES})`, "loading");
+                updateStatus(`🔍 Analyzing frame (${i + 1}/${AUTO_SCAN_CONFIG.NUM_FRAMES})...`, "loading");
 
-                const match = matchImage(features.descriptors);
-
-                // Clean up
-                features.keypoints.delete();
-                features.descriptors.delete();
+                // Use 2-layer recognition (face-api.js + ORB fallback)
+                const match = await recognizePresident(canvas);
 
                 // Store result
                 if (match) {
                     frameResults.push(match);
+                    console.log(`[Continuous Scan] Frame ${i + 1}: ${match.name} (${match.method})`);
                 }
 
                 // Wait before next frame

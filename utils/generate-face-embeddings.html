@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate Face Embeddings for 17 Presidents</title>
+    <script defer src="../node_modules/face-api.js/dist/face-api.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin: 20px 0;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        #progress {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        #output {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success { color: #4CAF50; }
+        .warning { color: #FF9800; }
+        .error { color: #f44336; }
+    </style>
+</head>
+<body>
+    <h1>Generate Face Embeddings for Relief Society Presidents</h1>
+    <p>This tool will detect faces and extract 128-dimensional descriptors (embeddings) from all 17 Relief Society General President portraits using face-api.js.</p>
+
+    <button id="generateBtn" onclick="generateEmbeddings()">
+        Start Processing
+    </button>
+
+    <div id="status"></div>
+    <div id="progress"></div>
+    <pre id="output"></pre>
+
+    <script>
+        const PRESIDENTS = [
+            { id: 1, name: "Emma Smith (Emma Hale Smith)", url: "../images/emma-smith.jpg" },
+            { id: 2, name: "Eliza R. Snow", url: "../images/eliza-snow.jpg" },
+            { id: 3, name: "Zina Diantha Huntington Young", url: "../images/zina-young.jpg" },
+            { id: 4, name: "Bathsheba W. Smith", url: "../images/bathsheba-smith.jpg" },
+            { id: 5, name: "Emmeline B. Wells", url: "../images/emmeline-wells.jpg" },
+            { id: 6, name: "Clarissa Smith Williams", url: "../images/clarissa-williams.jpg" },
+            { id: 7, name: "Louise Yates Robison", url: "../images/louise-robison.jpg" },
+            { id: 8, name: "Amy Brown Lyman", url: "../images/amy-lyman.jpg" },
+            { id: 9, name: "Belle Smith Spafford", url: "../images/belle-spafford.jpg" },
+            { id: 10, name: "Barbara Bradshaw Smith", url: "../images/barbara-b-smith.jpg" },
+            { id: 11, name: "Barbara Woodhead Winder", url: "../images/barbara-winder.jpg" },
+            { id: 12, name: "Elaine Low Jack", url: "../images/elaine-jack.jpg" },
+            { id: 13, name: "Mary Ellen Wood Smoot", url: "../images/mary-smoot.jpg" },
+            { id: 14, name: "Bonnie Dansie Parkin", url: "../images/bonnie-parkin.jpg" },
+            { id: 15, name: "Julie Bangerter Beck", url: "../images/julie-beck.jpg" },
+            { id: 16, name: "Linda K. Burton", url: "../images/linda-burton.jpg" },
+            { id: 17, name: "Jean B. Bingham", url: "../images/jean-bingham.jpg" }
+        ];
+
+        async function generateEmbeddings() {
+            const status = document.getElementById('status');
+            const progress = document.getElementById('progress');
+            const output = document.getElementById('output');
+            const generateBtn = document.getElementById('generateBtn');
+
+            generateBtn.disabled = true;
+            status.innerHTML = '<span class="warning">Loading face-api.js models...</span>';
+            progress.innerHTML = '';
+            output.textContent = '';
+
+            try {
+                // Load models from local folder
+                console.log('[Face API] Loading SSD MobileNetV1...');
+                await faceapi.nets.ssdMobilenetv1.loadFromUri('../lib/face-api');
+
+                console.log('[Face API] Loading Face Landmarks 68...');
+                await faceapi.nets.faceLandmark68Net.loadFromUri('../lib/face-api');
+
+                console.log('[Face API] Loading Face Recognition...');
+                await faceapi.nets.faceRecognitionNet.loadFromUri('../lib/face-api');
+
+                status.innerHTML = '<span class="success">✓ Models loaded! Processing presidents...</span>';
+
+                const embeddings = [];
+                const outliers = [];
+
+                for (let i = 0; i < PRESIDENTS.length; i++) {
+                    const president = PRESIDENTS[i];
+                    progress.innerHTML = `Processing ${i + 1}/17: ${president.name}...`;
+
+                    try {
+                        // Load image
+                        const img = await faceapi.fetchImage(president.url);
+
+                        // Detect single face and extract 128D descriptor
+                        const detection = await faceapi
+                            .detectSingleFace(img)
+                            .withFaceLandmarks()
+                            .withFaceDescriptor();
+
+                        if (detection) {
+                            embeddings.push({
+                                id: president.id,
+                                name: president.name,
+                                url: president.url,
+                                descriptor: Array.from(detection.descriptor) // Float32Array → Array
+                            });
+                            progress.innerHTML = `<span class="success">✓ ${president.name} - Face detected (${embeddings.length} with faces)</span>`;
+                            console.log(`✓ ${president.name}: 128D descriptor extracted`);
+                        } else {
+                            outliers.push({
+                                id: president.id,
+                                name: president.name,
+                                url: president.url,
+                                reason: "No face detected - will use ORB fallback"
+                            });
+                            progress.innerHTML = `<span class="warning">⚠️ ${president.name} - No face detected (outlier)</span>`;
+                            console.warn(`⚠️ ${president.name}: No face detected`);
+                        }
+
+                        // Delay for UI updates
+                        await new Promise(resolve => setTimeout(resolve, 500));
+
+                    } catch (error) {
+                        console.error(`Error processing ${president.name}:`, error);
+                        outliers.push({
+                            id: president.id,
+                            name: president.name,
+                            url: president.url,
+                            reason: error.message
+                        });
+                        progress.innerHTML = `<span class="error">❌ ${president.name} - Error: ${error.message}</span>`;
+                    }
+                }
+
+                status.innerHTML = `<span class="success">✓ Complete! ${embeddings.length} presidents with face embeddings, ${outliers.length} outliers (will use ORB)</span>`;
+
+                const result = {
+                    version: "1.0",
+                    model: "face-api.js ResNet-34 (128D descriptors)",
+                    generated: new Date().toISOString(),
+                    totalPresidents: PRESIDENTS.length,
+                    withFaceEmbeddings: embeddings.length,
+                    outliersCount: outliers.length,
+                    embeddings: embeddings,
+                    outliersList: outliers
+                };
+
+                output.textContent = JSON.stringify(result, null, 2);
+
+                // Create download button
+                const existingDownloadBtn = document.getElementById('downloadBtn');
+                if (existingDownloadBtn) {
+                    existingDownloadBtn.remove();
+                }
+
+                const downloadBtn = document.createElement('button');
+                downloadBtn.id = 'downloadBtn';
+                downloadBtn.textContent = '📥 Download face-embeddings.json';
+                downloadBtn.style.cssText = 'padding: 12px 24px; font-size: 16px; background: #2196F3; color: white; border: none; cursor: pointer; border-radius: 4px;';
+                downloadBtn.onclick = () => {
+                    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'face-embeddings.json';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                };
+
+                document.body.appendChild(downloadBtn);
+                generateBtn.disabled = false;
+
+            } catch (error) {
+                status.innerHTML = `<span class="error">❌ Error: ${error.message}</span>`;
+                console.error('Fatal error:', error);
+                generateBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

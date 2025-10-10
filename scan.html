@@ -10,7 +10,9 @@
     <link rel="stylesheet" href="styles.css">
     <!-- Load cache module first -->
     <script src="opencv-cache.js"></script>
-    <!-- Load OpenCV.js locally -->
+    <!-- Load face-api.js for face recognition (Layer 1) -->
+    <script defer src="node_modules/face-api.js/dist/face-api.min.js"></script>
+    <!-- Load OpenCV.js locally for ORB matching (Layer 2 fallback) -->
     <script async src="lib/opencv.js" type="text/javascript"></script>
 </head>
 <body>
