@@ -30,6 +30,11 @@
             </div>
         </div>
 
+        <!-- Stop & View Logs Button (floating) -->
+        <button id="stop-view-logs-btn" class="stop-view-logs-btn" style="display: none;">
+            🛑 Stop & View Logs
+        </button>
+
         <!-- Capture Button -->
         <button id="capture-btn" class="capture-btn" style="display: none;">
             <svg width="80" height="80" viewBox="0 0 80 80">
@@ -56,6 +61,25 @@
             <button id="close-result-btn" class="close-result-btn">&times;</button>
             <div id="result-display"></div>
             <button id="scan-again-btn" class="btn btn-primary btn-block">Scan Another</button>
+        </div>
+    </div>
+
+    <!-- Logs Viewer Modal -->
+    <div id="logs-modal" class="result-modal" style="display: none;">
+        <div class="result-content">
+            <button id="close-logs-btn" class="close-result-btn">&times;</button>
+            <div id="logs-display">
+                <div class="result-no-match">
+                    <h3>📊 Diagnostic Logs</h3>
+                    <p id="logs-info" style="margin: 1rem 0; font-size: 0.95rem;"></p>
+                    <button id="copy-logs-modal-btn" class="btn btn-primary btn-block" style="margin-bottom: 1rem;">
+                        📋 Copy Logs to Clipboard
+                    </button>
+                    <button id="resume-scan-btn" class="btn btn-secondary btn-block">
+                        ▶️ Resume Scanning
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 

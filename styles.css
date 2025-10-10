@@ -352,6 +352,31 @@ body {
     z-index: 10;
 }
 
+/* Stop & View Logs floating button */
+.stop-view-logs-btn {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 20px) + 70px);
+    right: 20px;
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 40px;
+}
+
+.stop-view-logs-btn:active {
+    background: #c0392b;
+    transform: scale(0.95);
+}
+
 /* No Match Result */
 .result-no-match {
     background: white;

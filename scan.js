@@ -1005,6 +1005,9 @@ async function startContinuousScanning() {
     scanningActive = true;
     console.log("🔍 Starting continuous auto-scan mode");
 
+    // Show stop & view logs button
+    document.getElementById("stop-view-logs-btn").style.display = "block";
+
     const video = document.getElementById("camera");
     const canvas = document.getElementById("capture-canvas");
 
@@ -1121,6 +1124,9 @@ async function startContinuousScanning() {
 
                 scanningActive = false;
 
+                // Hide stop button when showing result
+                document.getElementById("stop-view-logs-btn").style.display = "none";
+
                 // Vibrate success
                 vibrate([50, 100, 50]);
 
@@ -1150,6 +1156,9 @@ async function startContinuousScanning() {
     }
 
     console.log("⏸️  Auto-scan stopped");
+
+    // Hide stop button when scanning naturally ends
+    document.getElementById("stop-view-logs-btn").style.display = "none";
 }
 
 // Check scan history for confident match
@@ -1518,6 +1527,54 @@ function showToast(message, isError = false) {
     }, 3000);
 }
 
+// Stop scanning and view logs
+function stopAndViewLogs() {
+    // Stop scanning
+    scanningActive = false;
+    console.log("[Diagnostic] Scanning stopped by user to view logs");
+
+    // Hide stop button
+    document.getElementById("stop-view-logs-btn").style.display = "none";
+
+    // Show logs info
+    const logsInfo = document.getElementById("logs-info");
+    logsInfo.innerHTML = `
+        <strong>Session ID:</strong> ${DiagnosticLogger.sessionId}<br>
+        <strong>Total Logs:</strong> ${DiagnosticLogger.logs.length}<br>
+        <strong>Device:</strong> ${isMobile ? "Mobile" : "Desktop"}
+    `;
+
+    // Show logs modal
+    document.getElementById("logs-modal").style.display = "block";
+}
+
+// Resume scanning from logs modal
+function resumeScanning() {
+    // Close logs modal
+    document.getElementById("logs-modal").style.display = "none";
+
+    // Show stop button again
+    document.getElementById("stop-view-logs-btn").style.display = "block";
+
+    // Resume scanning
+    setTimeout(() => {
+        startContinuousScanning();
+    }, 500);
+}
+
+// Close logs modal without resuming
+function closeLogsModal() {
+    document.getElementById("logs-modal").style.display = "none";
+
+    // Show stop button again if scanning should resume
+    document.getElementById("stop-view-logs-btn").style.display = "block";
+
+    // Resume scanning
+    setTimeout(() => {
+        startContinuousScanning();
+    }, 500);
+}
+
 // Close result modal
 function closeResult() {
     document.getElementById("result-modal").style.display = "none";
@@ -1526,6 +1583,9 @@ function closeResult() {
 
     // Restart auto-scan if enabled
     if (AUTO_SCAN_CONFIG.ENABLED && !scanningActive) {
+        // Show stop button when resuming
+        document.getElementById("stop-view-logs-btn").style.display = "block";
+
         setTimeout(() => {
             startContinuousScanning();
         }, 500);
@@ -1605,6 +1665,24 @@ document.getElementById("file-upload").addEventListener("change", (e) => {
         processUploadedFile(file);
     }
 });
+
+// Stop & View Logs button
+document
+    .getElementById("stop-view-logs-btn")
+    .addEventListener("click", stopAndViewLogs);
+
+// Logs modal buttons
+document
+    .getElementById("close-logs-btn")
+    .addEventListener("click", closeLogsModal);
+
+document
+    .getElementById("resume-scan-btn")
+    .addEventListener("click", resumeScanning);
+
+document
+    .getElementById("copy-logs-modal-btn")
+    .addEventListener("click", (e) => copyLogsToClipboard(e.target));
 
 // Initialize
 console.log("App loaded. Waiting for OpenCV.js...");
