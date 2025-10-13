@@ -1,0 +1,34 @@
+<div id="scanner-page" class="scanner-view">
+    <video id="camera" autoplay playsinline muted></video>
+    <canvas id="capture-canvas" style="display: none;"></canvas>
+
+    <div id="status-overlay" class="status-overlay">
+        <p id="status-text">⏳ Loading OpenCV.js...</p>
+        <div id="scanning-indicator" class="scanning-indicator" style="display: none;">
+            <div class="scanning-line"></div>
+        </div>
+    </div>
+
+    <button id="stop-view-logs-btn" class="stop-view-logs-btn" style="display: none;">
+        🛑 Stop & View Logs
+    </button>
+
+    <button id="capture-btn" class="capture-btn" style="display: none;">
+        <svg width="80" height="80" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="35" fill="white" opacity="0.9"/>
+            <circle cx="40" cy="40" r="30" fill="none" stroke="#3498db" stroke-width="3"/>
+        </svg>
+    </button>
+
+    <div id="permission-prompt" class="permission-prompt" style="display: none;">
+        <div class="permission-content">
+            <div class="permission-icon">📷</div>
+            <h2>Camera Access Required</h2>
+            <p>Allow camera access to scan artworks</p>
+            <button id="request-permission-btn" class="btn btn-primary">Enable Camera</button>
+            <button id="use-upload-btn" class="btn btn-secondary">Upload Image Instead</button>
+        </div>
+    </div>
+
+    <input type="file" id="file-upload" accept="image/*" capture="environment" style="display: none;">
+</div>

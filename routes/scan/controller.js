@@ -234,10 +234,11 @@ const DiagnosticLogger = {
 // Initialize diagnostic logger
 DiagnosticLogger.init();
 
-// Expose globally for manual export via console
+// Expose globally for manual export via console and result page
 window.exportDiagnosticLogs = () => DiagnosticLogger.exportLogs();
 window.getDiagnosticSummary = () => DiagnosticLogger.getSummary();
 window.uploadDiagnosticLogs = () => DiagnosticLogger.sendBatchToRemote();
+window.copyLogsToClipboard = copyLogsToClipboard;
 
 // Log usage instructions
 console.log(
@@ -328,33 +329,22 @@ function resizeForRecognition(sourceCanvas, layer = 1) {
     return resizedCanvas;
 }
 
+// Track OpenCV ready state
+let opencvReady = false;
+
 // Wait for OpenCV.js to load
 function onOpenCvReady() {
     cv = window.cv;
     console.log("OpenCV.js loaded:", cv);
+    opencvReady = true;
 
     // Load face-api.js models in parallel
     loadFaceApi().catch((err) => {
         console.warn("[Face API] Will use ORB-only mode:", err);
     });
 
-    // Check for cached processed data first
-    if (window.OpencvCache) {
-        const cached = window.OpencvCache.loadProcessedArtworks(cv);
-        if (cached) {
-            referenceData = cached;
-            updateStatus(
-                `✓ Loaded ${referenceData.length} artworks from cache!`,
-                "success"
-            );
-            setTimeout(() => {
-                requestCameraAccess();
-            }, 500);
-            return;
-        }
-    }
-
-    // No cache, process normally
+    // Load pre-computed descriptors
+    console.log("✓ OpenCV.js loaded! Loading artworks...");
     updateStatus("✓ OpenCV.js loaded! Loading artworks...", "info");
     loadArtworks();
 }
@@ -479,10 +469,17 @@ var Module = {
     onRuntimeInitialized: onOpenCvReady,
 };
 
-// Update status message
+// Update status message (defensive - checks if elements exist)
 function updateStatus(message, type = "info") {
     const statusEl = document.getElementById("status-overlay");
     const statusText = document.getElementById("status-text");
+
+    // If elements don't exist yet (template not rendered), just log
+    if (!statusEl || !statusText) {
+        console.log(`[Status] ${message}`);
+        return;
+    }
+
     statusText.textContent = message;
 
     statusEl.classList.remove("success", "error", "loading");
@@ -518,15 +515,19 @@ function deserializeDescriptors() {
             );
         }
 
+        console.log(`✓ Ready! ${referenceData.length} presidents loaded.`);
         updateStatus(
             `✓ Ready! ${referenceData.length} presidents loaded.`,
             "success"
         );
 
-        // Auto-request camera after loading
-        setTimeout(() => {
-            requestCameraAccess();
-        }, 500);
+        // Only start camera if we're on scanner route
+        const currentRoute = Router.getCurrentRoute();
+        if (currentRoute && currentRoute.path === '/scan') {
+            setTimeout(() => {
+                requestCameraAccess();
+            }, 500);
+        }
     } catch (error) {
         console.error("Error deserializing descriptors:", error);
         updateStatus(`✗ Error: ${error.message}`, "error");
@@ -982,8 +983,8 @@ async function captureAndIdentify() {
         updateStatus("⏳ Analyzing results...", "loading");
         const aggregatedResult = aggregateFrameResults(frameResults);
 
-        // Display final result
-        displayResult(aggregatedResult);
+        // Navigate to result page
+        Router.navigate('/scan/result', { state: aggregatedResult });
 
         // Vibrate based on result
         if (aggregatedResult && aggregatedResult.matches >= 15) {
@@ -1130,8 +1131,8 @@ async function startContinuousScanning() {
                 // Vibrate success
                 vibrate([50, 100, 50]);
 
-                // Display result
-                displayResult(shouldDisplay);
+                // Navigate to result page
+                Router.navigate('/scan/result', { state: shouldDisplay });
 
                 // Clear history
                 scanHistory = [];
@@ -1317,129 +1318,9 @@ function aggregateFrameResults(frameResults) {
     };
 }
 
-// Display match result
-function displayResult(match) {
-    const resultModal = document.getElementById("result-modal");
-    const resultDisplay = document.getElementById("result-display");
+// Note: displayResult() removed - now using Router.navigate() to /scan/result page
 
-    // Handle inconclusive results (insufficient consensus or tie)
-    if (match && match.inconclusive) {
-        const candidates = match.topCandidates || [];
-        const reason =
-            match.reason === "tie"
-                ? "Results too close to determine"
-                : "Insufficient agreement across frames";
-
-        let candidatesHTML = "";
-        if (candidates.length >= 2) {
-            candidatesHTML = `
-                <p style="margin-top: 1rem; font-size: 0.95rem;">
-                    <strong>Top candidates:</strong><br>
-                    ${candidates
-                        .map(
-                            (c) =>
-                                `• ${c.name} (${c.voteCount}/${match.totalFrames} frames, avg ${c.avgMatches} matches)`
-                        )
-                        .join("<br>")}
-                </p>
-            `;
-        }
-
-        resultDisplay.innerHTML = `
-            <div class="result-no-match">
-                <h3>⚠️ Inconclusive Result</h3>
-                <p><strong>${reason}</strong></p>
-                <p style="margin-top: 1rem;">Please try again:</p>
-                <ul style="text-align: left; margin: 1rem 0; padding-left: 2rem;">
-                    <li>Hold camera steady</li>
-                    <li>Ensure good lighting</li>
-                    <li>Center the portrait in frame</li>
-                    <li>Avoid glare or shadows</li>
-                </ul>
-                ${candidatesHTML}
-            </div>
-        `;
-        updateStatus("Inconclusive - try again", "error");
-        resultModal.style.display = "block";
-        return;
-    }
-
-    // Handle successful match (increased threshold from 15 to 20)
-    if (match && match.matches >= 20) {
-        const confidence = Math.min(
-            95,
-            Math.round((match.matches / 500) * 100 + 40)
-        );
-
-        // Build stats display
-        let statsHTML = `
-            <p><strong>Confidence:</strong> ${confidence}%</p>
-            <p><strong>Best Match:</strong> ${match.matches} features</p>
-        `;
-
-        // Add voting stats if available (multi-frame capture)
-        if (match.voteCount && match.totalFrames) {
-            statsHTML += `
-                <p><strong>Frame Consensus:</strong> ${match.voteCount}/${match.totalFrames} frames (${match.consensus}%)</p>
-                <p><strong>Avg Matches:</strong> ${match.avgMatches} features</p>
-            `;
-        }
-
-        resultDisplay.innerHTML = `
-            <div class="result-match">
-                <img src="${match.url}" alt="${match.name}">
-                <div class="result-info">
-                    <h3>✓ Match Found!</h3>
-                    <h2>${match.name}</h2>
-                    <p>${match.description}</p>
-                    <div class="result-stats">
-                        ${statsHTML}
-                    </div>
-                    <button id="copy-logs-btn" class="btn btn-primary btn-block" style="margin-top: 1rem;">
-                        📋 Copy Logs
-                    </button>
-                </div>
-            </div>
-        `;
-        updateStatus(`✓ Matched: ${match.name}`, "success");
-
-        // Add event listener for copy button
-        setTimeout(() => {
-            const copyBtn = document.getElementById("copy-logs-btn");
-            if (copyBtn) {
-                copyBtn.addEventListener("click", () => copyLogsToClipboard(copyBtn));
-            }
-        }, 0);
-    } else {
-        // Handle no match (insufficient features)
-        const matchCount = match ? match.matches : 0;
-        const voteInfo =
-            match && match.voteCount
-                ? ` (${match.voteCount}/${match.totalFrames} frames agreed)`
-                : "";
-
-        resultDisplay.innerHTML = `
-            <div class="result-no-match">
-                <h3>⚠ No Match Found</h3>
-                <p>Not enough matching features detected.</p>
-                <p style="margin-top: 1rem;">Try:</p>
-                <ul style="text-align: left; margin: 0.5rem 0; padding-left: 2rem;">
-                    <li>Better lighting</li>
-                    <li>Different angle</li>
-                    <li>Closer distance</li>
-                </ul>
-                <p style="margin-top: 1rem; font-size: 0.9rem; opacity: 0.7;">
-                    Found ${matchCount} matches (need 15+)${voteInfo}
-                </p>
-            </div>
-        `;
-        updateStatus("No match found", "error");
-    }
-
-    resultModal.style.display = "block";
-}
-
-// Copy diagnostic logs to clipboard
+// Copy diagnostic logs to clipboard (exposed globally for result page)
 async function copyLogsToClipboard(button) {
     try {
         // Get logs data
@@ -1575,22 +1456,7 @@ function closeLogsModal() {
     }, 500);
 }
 
-// Close result modal
-function closeResult() {
-    document.getElementById("result-modal").style.display = "none";
-    const statusEl = document.getElementById("status-overlay");
-    statusEl.style.opacity = "1";
-
-    // Restart auto-scan if enabled
-    if (AUTO_SCAN_CONFIG.ENABLED && !scanningActive) {
-        // Show stop button when resuming
-        document.getElementById("stop-view-logs-btn").style.display = "block";
-
-        setTimeout(() => {
-            startContinuousScanning();
-        }, 500);
-    }
-}
+// Note: closeResult() removed - result is now a separate route page
 
 // Process uploaded file
 function processUploadedFile(file) {
@@ -1615,7 +1481,7 @@ function processUploadedFile(file) {
                     features.keypoints.delete();
                     features.descriptors.delete();
 
-                    displayResult(match);
+                    Router.navigate('/scan/result', { state: match });
 
                     if (match && match.matches >= 15) {
                         vibrate([50, 100, 50]);
@@ -1634,55 +1500,107 @@ function processUploadedFile(file) {
     reader.readAsDataURL(file);
 }
 
-// Event Listeners
-document
-    .getElementById("capture-btn")
-    .addEventListener("click", captureAndIdentify);
+// ============================================================================
+// ROUTE LIFECYCLE FUNCTIONS
+// ============================================================================
 
-document
-    .getElementById("close-result-btn")
-    .addEventListener("click", closeResult);
+// Initialize scanner page (called by router onEnter)
+window.initScannerPage = function() {
+    console.log('[Scanner] Page initialized');
 
-document
-    .getElementById("scan-again-btn")
-    .addEventListener("click", closeResult);
+    // Set up event listeners (now that template is rendered)
+    setupEventListeners();
 
-document
-    .getElementById("request-permission-btn")
-    .addEventListener("click", () => {
-        document.getElementById("permission-prompt").style.display = "none";
-        requestCameraAccess();
-    });
-
-document.getElementById("use-upload-btn").addEventListener("click", () => {
-    document.getElementById("file-upload").click();
-});
-
-document.getElementById("file-upload").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (file) {
-        document.getElementById("permission-prompt").style.display = "none";
-        processUploadedFile(file);
+    // If OpenCV is already ready and we have reference data, start camera
+    if (opencvReady && referenceData.length > 0) {
+        console.log('[Scanner] OpenCV already ready, starting camera');
+        updateStatus(`✓ Ready! ${referenceData.length} presidents loaded.`, "success");
+        setTimeout(() => {
+            requestCameraAccess();
+        }, 500);
+    } else {
+        // Show loading status
+        updateStatus("⏳ Loading OpenCV.js...", "loading");
     }
-});
+};
 
-// Stop & View Logs button
-document
-    .getElementById("stop-view-logs-btn")
-    .addEventListener("click", stopAndViewLogs);
+// Set up event listeners for scanner page
+function setupEventListeners() {
+    // Capture button
+    const captureBtn = document.getElementById("capture-btn");
+    if (captureBtn) {
+        captureBtn.addEventListener("click", captureAndIdentify);
+    }
 
-// Logs modal buttons
-document
-    .getElementById("close-logs-btn")
-    .addEventListener("click", closeLogsModal);
+    // Permission prompt buttons
+    const requestPermissionBtn = document.getElementById("request-permission-btn");
+    if (requestPermissionBtn) {
+        requestPermissionBtn.addEventListener("click", () => {
+            document.getElementById("permission-prompt").style.display = "none";
+            requestCameraAccess();
+        });
+    }
 
-document
-    .getElementById("resume-scan-btn")
-    .addEventListener("click", resumeScanning);
+    const useUploadBtn = document.getElementById("use-upload-btn");
+    if (useUploadBtn) {
+        useUploadBtn.addEventListener("click", () => {
+            document.getElementById("file-upload").click();
+        });
+    }
 
-document
-    .getElementById("copy-logs-modal-btn")
-    .addEventListener("click", (e) => copyLogsToClipboard(e.target));
+    // File upload
+    const fileUpload = document.getElementById("file-upload");
+    if (fileUpload) {
+        fileUpload.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById("permission-prompt").style.display = "none";
+                processUploadedFile(file);
+            }
+        });
+    }
+
+    // Stop & View Logs button
+    const stopViewLogsBtn = document.getElementById("stop-view-logs-btn");
+    if (stopViewLogsBtn) {
+        stopViewLogsBtn.addEventListener("click", stopAndViewLogs);
+    }
+
+    // Logs modal buttons (if logs modal exists in scanner template)
+    const closeLogsBtn = document.getElementById("close-logs-btn");
+    if (closeLogsBtn) {
+        closeLogsBtn.addEventListener("click", closeLogsModal);
+    }
+
+    const resumeScanBtn = document.getElementById("resume-scan-btn");
+    if (resumeScanBtn) {
+        resumeScanBtn.addEventListener("click", resumeScanning);
+    }
+
+    const copyLogsModalBtn = document.getElementById("copy-logs-modal-btn");
+    if (copyLogsModalBtn) {
+        copyLogsModalBtn.addEventListener("click", (e) => copyLogsToClipboard(e.target));
+    }
+}
+
+// Cleanup scanner page (called by router onLeave)
+window.cleanupScannerPage = function() {
+    console.log('[Scanner] Cleaning up');
+
+    // Stop scanning
+    if (scanningActive) {
+        stopContinuousScanning();
+    }
+
+    // Stop camera stream
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+    }
+
+    // Clear scan history
+    scanHistory = [];
+};
 
 // Initialize
-console.log("App loaded. Waiting for OpenCV.js...");
+console.log("Scanner module loaded. Waiting for OpenCV.js...");

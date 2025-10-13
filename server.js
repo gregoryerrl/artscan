@@ -275,8 +275,15 @@ app.get('/api/proxy-image', async (req, res) => {
 // Serve static files
 app.use(express.static(__dirname));
 
-// Serve index.html for root
-app.get('/', (req, res) => {
+// SPA fallback: Serve index.html for all non-API, non-static routes
+// This must be the last route to catch all unmatched paths
+app.get('*', (req, res) => {
+    // Skip API routes and static files (files with extensions)
+    if (req.path.startsWith('/api/') || path.extname(req.path)) {
+        return res.status(404).send('Not found');
+    }
+
+    // Serve index.html for all other routes (SPA routing)
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -285,5 +292,6 @@ app.listen(PORT, () => {
     console.log(`✓ Image proxy enabled at /api/proxy-image`);
     console.log(`✓ Diagnostic logging API enabled at /api/logs`);
     console.log(`✓ Real-time dashboard at http://localhost:${PORT}/logs-dashboard.html`);
+    console.log(`✓ SPA routing enabled (/, /scan)`);
     console.log(`✓ Press Ctrl+C to stop`);
 });

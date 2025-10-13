@@ -1,62 +1,43 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta name="theme-color" content="#2c3e50" />
-        <title>RS Portraits</title>
-        <link rel="stylesheet" href="landing.css" />
-    </head>
-    <body>
-        <!-- Preload Indicator -->
-        <div id="preload-indicator" class="preload-indicator">
-            <div class="preload-content">
-                <div class="preload-spinner"></div>
-                <p id="preload-status">Initializing...</p>
-            </div>
-        </div>
-        <!-- Hero Section -->
-        <section class="hero">
-            <div class="hero-content">
-                <h1>RS Portraits</h1>
-                <a href="/scan.html" class="btn btn-primary btn-large">
-                    <svg
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    >
-                        <path
-                            d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
-                        ></path>
-                        <circle cx="12" cy="13" r="4"></circle>
-                    </svg>
-                    Start Scanning
-                </a>
-            </div>
-        </section>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#2c3e50" />
+    <title>RS Portraits</title>
+    <link rel="stylesheet" href="routes/homepage.css" />
+    <link rel="stylesheet" href="routes/scan/styles.css" />
+</head>
+<body>
+    <div id="app"></div>
 
-        <!-- Gallery Section -->
-        <section class="gallery-section">
-            <h2 class="gallery-section-title">Relief Society Presidents</h2>
-            <div id="artwork-grid" class="artwork-grid">
-                <!-- Artworks will be loaded here -->
-            </div>
-            <div class="load-more-container">
-                <button id="load-more-btn" class="btn btn-secondary">
-                    Load More
-                </button>
-            </div>
-        </section>
+    <script src="router.js"></script>
+    <script src="routes/homepage.js"></script>
+    <script src="routes/scan/controller.js"></script>
+    <script src="routes/scan/result.js"></script>
+    <script defer src="node_modules/face-api.js/dist/face-api.min.js"></script>
+    <script async src="lib/opencv.js"></script>
 
-        <!-- Load cache module -->
-        <script src="opencv-cache.js"></script>
-        <!-- Load landing page script -->
-        <script src="landing.js"></script>
-        <!-- Load OpenCV.js locally and preloader in background -->
-        <script async src="lib/opencv.js"></script>
-        <script src="preloader.js"></script>
-    </body>
+    <script>
+        Router.addRoute('/', {
+            template: 'routes/homepage.html',
+            onEnter: () => window.initGalleryPage?.(),
+            onLeave: () => window.cleanupGalleryPage?.()
+        });
+
+        Router.addRoute('/scan', {
+            template: 'routes/scan/scanner.html',
+            onEnter: () => window.initScannerPage?.(),
+            onLeave: () => window.cleanupScannerPage?.()
+        });
+
+        Router.addRoute('/scan/result', {
+            template: 'routes/scan/result.html',
+            onEnter: (params, state) => window.initResultPage?.(state),
+            onLeave: () => window.cleanupResultPage?.()
+        });
+
+        Router.init();
+    </script>
+</body>
 </html>
