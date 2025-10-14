@@ -1,0 +1,81 @@
+<div id="model-tester-page" class="model-tester-view">
+    <!-- Camera Video (hidden - used only for frame capture) -->
+    <video id="model-camera" autoplay playsinline muted style="display: none;"></video>
+
+    <!-- Canvas for processed video frames + bounding boxes -->
+    <canvas id="detection-canvas"></canvas>
+
+    <!-- Header with Controls -->
+    <div class="model-header">
+        <button id="back-to-home-btn" class="back-btn" onclick="Router.navigate('/')">
+            ← Back
+        </button>
+        <h1>Model Tester</h1>
+    </div>
+
+    <!-- Model Selector -->
+    <div class="model-selector">
+        <label for="model-select">Detection Model:</label>
+        <select id="model-select">
+            <option value="ssd">SSD MobileNet V1 (balanced)</option>
+            <option value="tiny">Tiny Face Detector (fastest)</option>
+            <option value="mtcnn">MTCNN (most accurate)</option>
+        </select>
+    </div>
+
+    <!-- Performance Metrics -->
+    <div class="metrics-panel">
+        <div class="metric">
+            <span class="metric-label">Faces</span>
+            <span id="face-count" class="metric-value">0</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">FPS</span>
+            <span id="fps-value" class="metric-value">0</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Time</span>
+            <span id="detection-time" class="metric-value">0ms</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Conf.</span>
+            <span id="avg-confidence" class="metric-value">0%</span>
+        </div>
+    </div>
+
+    <!-- Control Buttons -->
+    <div class="control-buttons">
+        <button id="toggle-detection-btn" class="btn btn-primary btn-large">
+            Start Detection
+        </button>
+    </div>
+
+    <!-- Analysis Toggles -->
+    <div class="analysis-toggles">
+        <button id="toggle-landmarks-btn" class="btn btn-toggle">
+            Show Landmarks
+        </button>
+        <button id="toggle-age-gender-btn" class="btn btn-toggle">
+            Show Age/Gender
+        </button>
+        <button id="toggle-expression-btn" class="btn btn-toggle">
+            Show Expression
+        </button>
+    </div>
+
+    <!-- Status Overlay -->
+    <div id="model-status-overlay" class="status-overlay">
+        <p id="model-status-text">⏳ Loading models...</p>
+    </div>
+
+    <!-- Permission Prompt -->
+    <div id="model-permission-prompt" class="permission-prompt" style="display: none;">
+        <div class="permission-content">
+            <div class="permission-icon">📷</div>
+            <h2>Camera Access Required</h2>
+            <p>Allow camera access to test face detection</p>
+            <button id="model-request-permission-btn" class="btn btn-primary">Enable Camera</button>
+            <button id="model-back-btn" class="btn btn-secondary" onclick="Router.navigate('/')">Go Back</button>
+        </div>
+    </div>
+</div>

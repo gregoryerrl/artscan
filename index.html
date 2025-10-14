@@ -7,6 +7,7 @@
     <title>RS Portraits</title>
     <link rel="stylesheet" href="routes/homepage.css" />
     <link rel="stylesheet" href="routes/scan/styles.css" />
+    <link rel="stylesheet" href="routes/models/styles.css" />
 </head>
 <body>
     <div id="app"></div>
@@ -15,6 +16,7 @@
     <script src="routes/homepage.js"></script>
     <script src="routes/scan/controller.js"></script>
     <script src="routes/scan/result.js"></script>
+    <script src="routes/models/controller.js"></script>
     <script defer src="node_modules/face-api.js/dist/face-api.min.js"></script>
     <script async src="lib/opencv.js"></script>
 
@@ -35,6 +37,12 @@
             template: 'routes/scan/result.html',
             onEnter: (params, state) => window.initResultPage?.(state),
             onLeave: () => window.cleanupResultPage?.()
+        });
+
+        Router.addRoute('/models', {
+            template: 'routes/models/models.html',
+            onEnter: () => window.initModelsPage?.(),
+            onLeave: () => window.cleanupModelsPage?.()
         });
 
         Router.init();
