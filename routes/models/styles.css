@@ -8,7 +8,6 @@
     width: 100vw;
     height: 100vh;
     background: #000;
-    overflow: hidden;
 }
 
 /* Camera Video (hidden - used only for frame capture) */
@@ -26,7 +25,7 @@
     object-fit: cover;
     object-position: center;
     background: #000;
-    image-rendering: auto;  /* Let browser optimize rendering */
+    image-rendering: auto; /* Let browser optimize rendering */
 }
 
 /* Header */
@@ -281,8 +280,13 @@
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
 }
 
 /* Permission Prompt */
